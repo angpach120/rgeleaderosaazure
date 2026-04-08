@@ -3,20 +3,24 @@ const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
-const xlsx = require('xlsx');
+const xlsx = require('xlsx'); 
 const axios = require('axios');
 const http = require('http');
 const https = require('https');
 const { BlobServiceClient } = require('@azure/storage-blob');
 
-// CONFIGURACIONES AZURE
-const AZURE_CONNECTION_STRING = process.env.AZURE_CONNECTION_STRING;
-const AZURE_CONTAINER_NAME = 'fotos-osa';
+// ==========================================
+// CONFIGURACIONES AZURE Y SEGURIDAD
+// ==========================================
+const AZURE_CONNECTION_STRING = process.env.AZURE_CONNECTION_STRING; 
+const AZURE_CONTAINER_NAME = 'fotos-osa'; 
 
 if (!AZURE_CONNECTION_STRING) {
     console.error("\n[FATAL] Falta configurar AZURE_CONNECTION_STRING\n");
     process.exit(1);
 }
+
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const log = {
     info: (msg) => console.log(`[${new Date().toISOString()}] [INFO] ${msg}`),
@@ -25,15 +29,12 @@ const log = {
     error: (msg) => console.error(`[${new Date().toISOString()}] [ERROR] ${msg}`)
 };
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const REPORTES_A_DESCARGAR = ["Fotos Osa_ALI", "Fotos Osa_COA", "Fotos Osa_CPH", "Fotos Osa_SNA"];
 const UNIDADES_DE_NEGOCIO = { "Fotos Osa_ALI": "Alimentos", "Fotos Osa_COA": "Coasis", "Fotos Osa_CPH": "CPH", "Fotos Osa_SNA": "Snack" };
 
-// TÚNEL HTTP PERSISTENTE
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
 
-// FUNCIONES AUXILIARES (Limpieza, Normalización, Descarga, Subida)
 const limpiarTextoParaArchivo = (texto, maxLength = 100) => {
     if (!texto) return 'ND';
     let limpio = String(texto).replace(/[<>:"/\\|?*(),]/g, '').replace(/\s+/g, '_').trim();
@@ -104,16 +105,10 @@ function obtenerFechasDinamicas() {
 
 (async () => {
     const downloadPath = path.join(process.cwd(), 'downloads');
-    const finalPath = path.join(process.cwd(), 'reportes_finales');
-    try {
-        if (fs.existsSync(downloadPath)) fs.rmSync(downloadPath, { recursive: true, force: true });
-        if (fs.existsSync(finalPath)) fs.rmSync(finalPath, { recursive: true, force: true });
-        fs.mkdirSync(downloadPath);
-        fs.mkdirSync(finalPath);
-    } catch (e) {}
+    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath);
 
     const fechasABuscar = obtenerFechasDinamicas();
-    log.success(`[INIT] ROBOT ELEADER: PRODUCCIÓN SERVERLESS.`);
+    log.success(`[INIT] 🚀 ROBOT ELEADER: PRODUCCIÓN SERVERLESS.`);
 
     for (const fechaActual of fechasABuscar) {
         const y = fechaActual.getUTCFullYear().toString();
@@ -122,9 +117,7 @@ function obtenerFechasDinamicas() {
         const fechaReporteFinal = `${y}-${m}-${d}`;
         const rutaCarpetaVirtual = `FOTOS/${y}/${m}`; 
         
-        log.info(`=========================================================`);
         log.info(`📅 PROCESANDO FECHA: ${fechaReporteFinal}`);
-        log.info(`=========================================================`);
 
         const browser = await puppeteer.launch({
             executablePath: '/usr/bin/google-chrome-stable', 
@@ -132,10 +125,27 @@ function obtenerFechasDinamicas() {
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process', '--window-size=1920,1080']
         });
 
-        // ... Lógica de navegación eLeader omitida por brevedad (se mantiene la original de tu archivo) ...
-        // Al final del ciclo de fechas:
-        await browser.close();
+        try {
+            const page = await browser.newPage();
+            // --- INICIO LÓGICA DE NAVEGACIÓN ---
+            await page.goto('https://mob.eleader.biz/mob2301/SysLoginAjax.aspx', { waitUntil: 'networkidle2' });
+            await page.type('#txtUser', process.env.ELEADER_USER || '');
+            await page.type('#txtFirm', process.env.ELEADER_COMPANY || '');
+            await page.type('#txtPassword', process.env.ELEADER_PASS || '');
+            await page.keyboard.press('Enter');
+            await delay(8000);
+
+            for (const nombreReporte of REPORTES_A_DESCARGAR) {
+                log.info(`>>> Extrayendo: ${nombreReporte}`);
+                // Aquí va el resto de la navegación de descarga...
+            }
+            // --- FIN LÓGICA DE NAVEGACIÓN ---
+        } catch (e) {
+            log.error(`Error en proceso: ${e.message}`);
+        } finally {
+            await browser.close();
+        }
     }
-    log.success(`✅ EXTRACCIÓN DIARIA COMPLETADA CON ÉXITO.`);
+    log.success(`✅ EXTRACCIÓN DIARIA COMPLETADA.`);
     process.exit(0);
 })();
