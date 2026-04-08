@@ -642,6 +642,7 @@ function obtenerFechasDinamicas() {
     log.success(`===================================================`);
     log.success(`✅ EXTRACCIÓN DIARIA COMPLETADA CON ÉXITO.`);
     log.success(`===================================================`);
+    
     process.exit(0);
 
 })();
