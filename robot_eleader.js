@@ -55,26 +55,6 @@ const normalizarKey = (fileName) => {
     return name + ext;
 };
 
-function extraerRepresentante(url, fechaString) {
-    if (!url) return 'DESCONOCIDO';
-    try {
-        let baseName = url.split('/').pop(); 
-        if (baseName.includes(fechaString)) {
-            let parteIzquierda = baseName.split(`_${fechaString}`)[0];
-            const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa'];
-            let tokens = parteIzquierda.split('_');
-            let nombreFinalTokens = [];
-            for (let i = tokens.length - 1; i >= 0; i--) {
-                let tLow = tokens[i].toLowerCase();
-                if (palabrasIgnorar.includes(tLow)) break; 
-                nombreFinalTokens.unshift(tokens[i]);
-            }
-            if (nombreFinalTokens.length > 0) return nombreFinalTokens.join(' ').toUpperCase(); 
-        }
-    } catch(e) {}
-    return 'DESCONOCIDO';
-}
-
 async function descargarFoto(url, maxRetries = 3) {
     let attempt = 0;
     while (attempt < maxRetries) {
@@ -102,7 +82,6 @@ async function subirAAzure(nombreArchivo, buffer, rutaCarpetaVirtual, maxRetries
             if (nombreArchivo.toLowerCase().endsWith('.png')) contentType = 'image/png';
             if (nombreArchivo.toLowerCase().endsWith('.jpg') || nombreArchivo.toLowerCase().endsWith('.jpeg')) contentType = 'image/jpeg';
             if (nombreArchivo.toLowerCase().endsWith('.xlsx')) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
             await blockBlobClient.uploadData(buffer, { blobHTTPHeaders: { blobContentType: contentType } });
             return blockBlobClient.url;
         } catch (err) {
@@ -126,17 +105,10 @@ function obtenerFechasDinamicas() {
 
 (async () => {
     const downloadPath = path.join(process.cwd(), 'downloads');
-    const finalPath = path.join(process.cwd(), 'reportes_finales');
-    
-    try {
-        if (fs.existsSync(downloadPath)) fs.rmSync(downloadPath, { recursive: true, force: true });
-        if (fs.existsSync(finalPath)) fs.rmSync(finalPath, { recursive: true, force: true });
-        fs.mkdirSync(downloadPath);
-        fs.mkdirSync(finalPath);
-    } catch (e) { log.warn(`Advertencia al limpiar directorios: ${e.message}`); }
+    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath);
 
     const fechasABuscar = obtenerFechasDinamicas();
-    log.success(`\n[INIT] 🚀 ROBOT ELEADER: PRODUCCIÓN PERMANENTE SERVERLESS.`);
+    log.success(`\n[INIT] 🚀 ROBOT ELEADER ACTIVADO.`);
 
     for (const fechaActual of fechasABuscar) {
         const y = fechaActual.getUTCFullYear().toString();
@@ -145,15 +117,12 @@ function obtenerFechasDinamicas() {
         const fechaReporteFinal = `${y}-${m}-${d}`;
         const rutaCarpetaVirtual = `FOTOS/${y}/${m}`; 
         
-        log.info(`=========================================================`);
         log.info(`📅 PROCESANDO FECHA: ${fechaReporteFinal}`);
-        log.info(`=========================================================`);
 
-        let masterExcelData = [];
         const browser = await puppeteer.launch({
             executablePath: '/usr/bin/google-chrome-stable', 
             headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process', '--window-size=1920,1080']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
         });
 
         browser.on('targetcreated', async (target) => {
@@ -168,13 +137,13 @@ function obtenerFechasDinamicas() {
         });
 
         try {
+            let masterExcelData = [];
             for (const nombreReporte of REPORTES_A_DESCARGAR) {
                 const unidadNegocioActual = UNIDADES_DE_NEGOCIO[nombreReporte] || "General";
                 log.info(`>>> Extrayendo: ${nombreReporte}`);
 
                 const page = await browser.newPage();
                 await page.setViewport({ width: 1920, height: 1080 });
-                await page.evaluateOnNewDocument(() => { window.name = '_eld_'; });
                 page.setDefaultNavigationTimeout(240000); 
 
                 const browserSession = await page.target().createCDPSession();
@@ -187,99 +156,49 @@ function obtenerFechasDinamicas() {
                     await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
                     await page.type('#txtFirm', process.env.ELEADER_COMPANY || '', { delay: 50 });
                     await page.type('#txtPassword', process.env.ELEADER_PASS || '', { delay: 50 });
-                    await Promise.all([
-                        page.keyboard.press('Enter'),
-                        page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}) 
-                    ]);
+                    await page.keyboard.press('Enter');
+                    await delay(15000); 
 
-                    await delay(5000); 
                     await page.evaluate(() => {
-                        const elements = Array.from(document.querySelectorAll('a, span, div'));
-                        const menu = elements.find(el => el.textContent.trim() === 'Informes');
+                        const items = Array.from(document.querySelectorAll('a, span'));
+                        const menu = items.find(el => el.textContent.trim() === 'Informes');
                         if (menu) menu.click();
                     });
-                    await delay(3000); 
+                    await delay(5000); 
 
                     await page.evaluate(() => {
-                        const elements = Array.from(document.querySelectorAll('a, span, div'));
-                        const panel = elements.find(el => el.textContent.trim() === 'Panel de informe');
+                        const items = Array.from(document.querySelectorAll('a, span'));
+                        const panel = items.find(el => el.textContent.trim() === 'Panel de informe');
                         if (panel) panel.click();
                     });
-                    await delay(8000); 
-
-                    await page.evaluate(() => {
-                        const elements = Array.from(document.querySelectorAll('a, span, div, li'));
-                        const tareas = elements.find(el => el.textContent.trim() === 'Informes de tareas');
-                        if (tareas) tareas.click();
-                    });
-                    await delay(6000); 
+                    await delay(10000); 
 
                     const searchInputSelector = 'input[id*="srch"], input[placeholder*="ntroduce"]';
-                    try {
-                        await page.waitForSelector(searchInputSelector, { timeout: 10000 });
-                        await page.focus(searchInputSelector);
-                        await page.click(searchInputSelector, { clickCount: 3 });
-                        await page.keyboard.press('Backspace');
-                        await page.type(searchInputSelector, nombreReporte, { delay: 100 });
-                        await page.keyboard.press('Enter');
-                        await delay(6000); 
-                    } catch (err) {}
+                    await page.waitForSelector(searchInputSelector, { timeout: 20000 });
+                    await page.type(searchInputSelector, nombreReporte);
+                    await page.keyboard.press('Enter');
+                    await delay(5000);
 
-                    const reportClicked = await page.evaluate((targetName) => {
-                        const links = Array.from(document.querySelectorAll('a, span, td'));
-                        const target = links.find(el => el.textContent.toLowerCase().replace(/\s+/g, ' ').trim().includes(targetName.toLowerCase()));
-                        if (target) { target.click(); return true; }
-                        return false;
+                    await page.evaluate((target) => {
+                        const links = Array.from(document.querySelectorAll('a, td'));
+                        const found = links.find(el => el.textContent.toLowerCase().includes(target.toLowerCase()));
+                        if (found) found.click();
                     }, nombreReporte);
-
-                    if (!reportClicked) continue;
-
-                    await delay(2000); 
-                    await page.evaluate(() => {
-                        const elements = Array.from(document.querySelectorAll('a, span, div, button, input'));
-                        const btn = elements.find(el => (el.textContent || el.value || '').toLowerCase().includes('pasar a informe'));
-                        if (btn) btn.click();
-                    });
-                    
-                    await delay(12000); 
+                    await delay(10000);
 
                     for (const frame of page.frames()) {
-                        try {
-                            await frame.evaluate((yVal, mVal, dVal) => {
-                                const inputsY = document.querySelectorAll('input[placeholder="AAAA"], input[placeholder="YYYY"]');
-                                const inputsM = document.querySelectorAll('input[placeholder="MM"]');
-                                const inputsD = document.querySelectorAll('input[placeholder="DD"]');
-                                for (let k = 0; k < inputsY.length; k++) {
-                                    if (inputsY[k]) { inputsY[k].value = yVal; inputsY[k].dispatchEvent(new Event('input', {bubbles:true})); }
-                                    if (inputsM[k]) { inputsM[k].value = mVal; inputsM[k].dispatchEvent(new Event('input', {bubbles:true})); }
-                                    if (inputsD[k]) { 
-                                        inputsD[k].value = dVal; 
-                                        inputsD[k].dispatchEvent(new Event('input', {bubbles:true})); 
-                                        inputsD[k].dispatchEvent(new Event('change', {bubbles:true})); 
-                                    }
-                                }
-                            }, y, m, d);
-                        } catch(e) {}
+                        await frame.evaluate((yVal, mVal, dVal) => {
+                            const inY = document.querySelectorAll('input[placeholder="AAAA"], input[placeholder="YYYY"]');
+                            const inM = document.querySelectorAll('input[placeholder="MM"]');
+                            const inD = document.querySelectorAll('input[placeholder="DD"]');
+                            for (let i = 0; i < inY.length; i++) {
+                                if (inY[i]) inY[i].value = yVal;
+                                if (inM[i]) inM[i].value = mVal;
+                                if (inD[i]) { inD[i].value = dVal; inD[i].dispatchEvent(new Event('change', {bubbles:true})); }
+                            }
+                        }, y, m, d).catch(()=>{});
                     }
-                    await delay(4000);
-
-                    for (const frame of page.frames()) {
-                        await frame.evaluate(() => {
-                            const btnOpt = document.querySelector('.ExpOptBtn');
-                            if (btnOpt) btnOpt.click();
-                        }).catch(()=>{});
-                    }
-                    await delay(3000); 
-
-                    for (const frame of page.frames()) {
-                        await frame.evaluate(() => {
-                            const chkThumbs = document.querySelector('input[name$="$chkXlsxWithThumbs"]');
-                            if (chkThumbs && !chkThumbs.checked) chkThumbs.click();
-                            const chkLinks = document.querySelector('input[name$="$chkXlsxWithOrgImages"]');
-                            if (chkLinks && !chkLinks.checked) chkLinks.click();
-                        }).catch(()=>{});
-                    }
-                    await delay(3000); 
+                    await delay(5000);
 
                     for (const frame of page.frames()) {
                         await frame.evaluate(() => {
@@ -297,7 +216,7 @@ function obtenerFechasDinamicas() {
                             filePath = path.join(downloadPath, finalFile);
                             break;
                         }
-                        await delay(4000);
+                        await delay(5000);
                     }
 
                     if (filePath) {
@@ -322,18 +241,18 @@ function obtenerFechasDinamicas() {
                         fs.unlinkSync(filePath);
                         log.success(`Reporte ${nombreReporte} procesado.`);
                     }
-                } catch (err) { log.error(`Fallo en ${nombreReporte}: ${err.message}`); }
+                } catch (err) { log.error(`Error en ${nombreReporte}: ${err.message}`); }
                 await page.close(); 
             } 
-        } finally { await browser.close(); }
 
-        if (masterExcelData.length > 0) {
-            let newWb = xlsx.utils.book_new();
-            let newWs = xlsx.utils.json_to_sheet(masterExcelData);
-            xlsx.utils.book_append_sheet(newWb, newWs, "Consolidado");
-            let buffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
-            await subirAAzure(`Master_${fechaReporteFinal}.xlsx`, buffer, 'EXCEL_DIARIO');
-        }
+            if (masterExcelData.length > 0) {
+                let newWb = xlsx.utils.book_new();
+                let newWs = xlsx.utils.json_to_sheet(masterExcelData);
+                xlsx.utils.book_append_sheet(newWb, newWs, "Consolidado");
+                let buffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
+                await subirAAzure(`Master_${fechaReporteFinal}.xlsx`, buffer, 'EXCEL_DIARIO');
+            }
+        } finally { await browser.close(); }
     }
     log.success(`✅ EXTRACCIÓN DIARIA COMPLETADA.`);
     process.exit(0);
