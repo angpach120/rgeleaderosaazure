@@ -1,0 +1,14 @@
+{
+  "name": "robot-eleader-azure",
+  "version": "1.0.0",
+  "description": "Bot de extracción eLeader para Grupo Corripio",
+  "main": "robot_eleader.js",
+  "dependencies": {
+    "@azure/storage-blob": "^12.17.0",
+    "adm-zip": "^0.5.10",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "puppeteer": "^21.5.2",
+    "xlsx": "^0.18.5"
+  }
+}
