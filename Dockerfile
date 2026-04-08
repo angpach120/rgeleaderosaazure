@@ -1,11 +1,11 @@
-# Usamos la imagen oficial de Google Chrome y Node.js (Especial para Puppeteer)
 FROM ghcr.io/puppeteer/puppeteer:latest
 
+USER root
 WORKDIR /usr/src/app
 
 COPY package*.json ./
-RUN npm install
+RUN npm install --no-cache
 
-COPY robot_eleader.js .
+COPY . .
 
 CMD ["node", "robot_eleader.js"]
