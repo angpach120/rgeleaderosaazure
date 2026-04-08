@@ -117,16 +117,10 @@ function obtenerFechasDinamicas() {
     const fechas = [];
     const hoyLocal = new Date();
     hoyLocal.setHours(hoyLocal.getHours() - 4); 
-    
-    const antier = new Date(hoyLocal);
-    antier.setDate(antier.getDate() - 2);
-    
-    const ayer = new Date(hoyLocal);
-    ayer.setDate(ayer.getDate() - 1);
-    
+    const antier = new Date(hoyLocal); antier.setDate(antier.getDate() - 2);
+    const ayer = new Date(hoyLocal); ayer.setDate(ayer.getDate() - 1);
     fechas.push(new Date(Date.UTC(antier.getFullYear(), antier.getMonth(), antier.getDate(), 12, 0, 0)));
     fechas.push(new Date(Date.UTC(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 12, 0, 0)));
-    
     return fechas;
 }
 
@@ -151,8 +145,11 @@ function obtenerFechasDinamicas() {
         const fechaReporteFinal = `${y}-${m}-${d}`;
         const rutaCarpetaVirtual = `FOTOS/${y}/${m}`; 
         
+        log.info(`=========================================================`);
         log.info(`📅 PROCESANDO FECHA: ${fechaReporteFinal}`);
+        log.info(`=========================================================`);
 
+        let masterExcelData = [];
         const browser = await puppeteer.launch({
             executablePath: '/usr/bin/google-chrome-stable', 
             headless: "new",
@@ -177,6 +174,7 @@ function obtenerFechasDinamicas() {
 
                 const page = await browser.newPage();
                 await page.setViewport({ width: 1920, height: 1080 });
+                await page.evaluateOnNewDocument(() => { window.name = '_eld_'; });
                 page.setDefaultNavigationTimeout(240000); 
 
                 const browserSession = await page.target().createCDPSession();
@@ -251,7 +249,6 @@ function obtenerFechasDinamicas() {
                                 const inputsY = document.querySelectorAll('input[placeholder="AAAA"], input[placeholder="YYYY"]');
                                 const inputsM = document.querySelectorAll('input[placeholder="MM"]');
                                 const inputsD = document.querySelectorAll('input[placeholder="DD"]');
-                                
                                 for (let k = 0; k < inputsY.length; k++) {
                                     if (inputsY[k]) { inputsY[k].value = yVal; inputsY[k].dispatchEvent(new Event('input', {bubbles:true})); }
                                     if (inputsM[k]) { inputsM[k].value = mVal; inputsM[k].dispatchEvent(new Event('input', {bubbles:true})); }
@@ -280,25 +277,9 @@ function obtenerFechasDinamicas() {
                             if (chkThumbs && !chkThumbs.checked) chkThumbs.click();
                             const chkLinks = document.querySelector('input[name$="$chkXlsxWithOrgImages"]');
                             if (chkLinks && !chkLinks.checked) chkLinks.click();
-                            const chkDN = document.querySelector('input[name$="$chkDN"]');
-                            if (chkDN && chkDN.checked) chkDN.click();
                         }).catch(()=>{});
                     }
                     await delay(3000); 
-
-                    for (const frame of page.frames()) {
-                        const clicked = await frame.evaluate(() => {
-                            const tds = Array.from(document.querySelectorAll('td'));
-                            const lbl = tds.find(td => td.textContent.trim() === 'Representante:');
-                            if (lbl && lbl.nextElementSibling) {
-                                const btn = lbl.nextElementSibling.querySelector('input[type="button"], .DDBtn');
-                                if (btn) { btn.click(); return true; }
-                            }
-                            return false;
-                        }).catch(() => false);
-                        if (clicked) break;
-                    }
-                    await delay(4000); 
 
                     for (const frame of page.frames()) {
                         await frame.evaluate(() => {
@@ -322,13 +303,37 @@ function obtenerFechasDinamicas() {
                     if (filePath) {
                         const zip = new AdmZip(filePath);
                         const zipEntries = zip.getEntries();
-                        // ... (Lógica de procesamiento de ZIP y subida a Azure igual a la original)
+                        const excelEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.xlsx'));
+                        if (excelEntry) {
+                            let workbook = xlsx.read(excelEntry.getData(), { type: 'buffer' });
+                            let rawData = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                            for (let row of rawData) {
+                                let photoLink = row['Fotos'] || row['Foto'] || "";
+                                if (photoLink.includes('http')) {
+                                    let imgBuffer = await descargarFoto(photoLink);
+                                    if (imgBuffer) {
+                                        let imgName = `FOTO_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+                                        let azureUrl = await subirAAzure(imgName, imgBuffer, rutaCarpetaVirtual);
+                                        masterExcelData.push({ ...row, 'Link Azure': azureUrl, 'Unidad': unidadNegocioActual });
+                                    }
+                                }
+                            }
+                        }
+                        fs.unlinkSync(filePath);
                         log.success(`Reporte ${nombreReporte} procesado.`);
                     }
                 } catch (err) { log.error(`Fallo en ${nombreReporte}: ${err.message}`); }
                 await page.close(); 
             } 
         } finally { await browser.close(); }
+
+        if (masterExcelData.length > 0) {
+            let newWb = xlsx.utils.book_new();
+            let newWs = xlsx.utils.json_to_sheet(masterExcelData);
+            xlsx.utils.book_append_sheet(newWb, newWs, "Consolidado");
+            let buffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
+            await subirAAzure(`Master_${fechaReporteFinal}.xlsx`, buffer, 'EXCEL_DIARIO');
+        }
     }
     log.success(`✅ EXTRACCIÓN DIARIA COMPLETADA.`);
     process.exit(0);
