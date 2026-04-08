@@ -1,0 +1,31 @@
+name: Construir y Guardar Bóveda Gratuita (GHCR)
+
+on:
+  push:
+    branches: [ "main" ] # Se ejecuta cada vez que actualices tu código
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Permiso crucial para guardar el contenedor
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry (GitHub)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # El nombre de la imagen será ghcr.io/TU_USUARIO/TU_REPO:latest
+          tags: ghcr.io/${{ github.repository }}:latest
