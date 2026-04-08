@@ -120,7 +120,7 @@ function obtenerFechasDinamicas() {
         log.info(`📅 PROCESANDO FECHA: ${fechaReporteFinal}`);
 
         const browser = await puppeteer.launch({
-            executablePath: '/usr/bin/google-chrome-stable', 
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium', 
             headless: "new",
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
         });
