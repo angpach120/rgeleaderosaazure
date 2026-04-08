@@ -1,5 +1,5 @@
 require('dotenv').config(); 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
