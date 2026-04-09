@@ -98,7 +98,7 @@ function obtenerFechasDinamicas() {
     hoyLocal.setHours(hoyLocal.getHours() - 4); 
     const antier = new Date(hoyLocal); antier.setDate(antier.getDate() - 2);
     const ayer = new Date(hoyLocal); ayer.setDate(ayer.getDate() - 1);
-    const hoy = new Date(hoyLocal); // Añadido para procesar el día actual
+    const hoy = new Date(hoyLocal);
     fechas.push(new Date(Date.UTC(antier.getFullYear(), antier.getMonth(), antier.getDate(), 12, 0, 0)));
     fechas.push(new Date(Date.UTC(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 12, 0, 0)));
     fechas.push(new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 12, 0, 0)));
@@ -124,7 +124,13 @@ function obtenerFechasDinamicas() {
         const browser = await puppeteer.launch({
             executablePath: '/usr/bin/chromium', 
             headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-web-security', 
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--lang=es-ES,es' // 🔥 OBLIGAMOS AL NAVEGADOR A ESTAR EN ESPAÑOL
+            ]
         });
 
         browser.on('targetcreated', async (target) => {
@@ -146,6 +152,7 @@ function obtenerFechasDinamicas() {
 
                 const page = await browser.newPage();
                 await page.setViewport({ width: 1920, height: 1080 });
+                await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9' }); // 🔥 OBLIGAMOS A LA PÁGINA A CARGAR EN ESPAÑOL
                 page.setDefaultNavigationTimeout(240000); 
 
                 const browserSession = await page.target().createCDPSession();
@@ -155,7 +162,6 @@ function obtenerFechasDinamicas() {
                     await page.goto('https://mob.eleader.biz/mob2301/SysLoginAjax.aspx', { waitUntil: 'networkidle2' });
                     await delay(3000);
                     
-                    // CORRECCIÓN 1: Verificamos si estamos logueados antes de escribir
                     const necesitaLogin = await page.$('#txtUser');
                     if (necesitaLogin) {
                         await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
@@ -183,7 +189,6 @@ function obtenerFechasDinamicas() {
 
                     const searchInputSelector = 'input[id*="srch"], input[placeholder*="ntroduce"]';
                     
-                    // CORRECCIÓN 2: Buscar el buscador en TODOS los frames
                     let searchFound = false;
                     for (const frame of page.frames()) {
                         try {
