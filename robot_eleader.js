@@ -35,26 +35,6 @@ const UNIDADES_DE_NEGOCIO = { "Fotos Osa_ALI": "Alimentos", "Fotos Osa_COA": "Co
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
 
-const limpiarTextoParaArchivo = (texto, maxLength = 100) => {
-    if (!texto) return 'ND';
-    let limpio = String(texto).replace(/[<>:"/\\|?*(),]/g, '').replace(/\s+/g, '_').trim();
-    if (limpio.length > maxLength) limpio = limpio.substring(0, maxLength); 
-    return limpio;
-};
-
-const normalizarKey = (fileName) => {
-    if (!fileName) return "";
-    let decoded = fileName;
-    try { decoded = decodeURIComponent(fileName); } catch(e){}
-    let parts = decoded.split(/[/\\]/);
-    let base = parts[parts.length - 1];
-    let extIdx = base.lastIndexOf('.');
-    let name = extIdx > -1 ? base.substring(0, extIdx) : base;
-    let ext = extIdx > -1 ? base.substring(extIdx).toLowerCase() : "";
-    name = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/gi, '').toLowerCase(); 
-    return name + ext;
-};
-
 async function descargarFoto(url, maxRetries = 3) {
     let attempt = 0;
     while (attempt < maxRetries) {
@@ -129,7 +109,7 @@ function obtenerFechasDinamicas() {
                 '--disable-setuid-sandbox', 
                 '--disable-web-security', 
                 '--disable-features=IsolateOrigins,site-per-process',
-                '--lang=es-ES,es' // 🔥 OBLIGAMOS AL NAVEGADOR A ESTAR EN ESPAÑOL
+                '--lang=es-ES,es'
             ]
         });
 
@@ -152,7 +132,7 @@ function obtenerFechasDinamicas() {
 
                 const page = await browser.newPage();
                 await page.setViewport({ width: 1920, height: 1080 });
-                await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9' }); // 🔥 OBLIGAMOS A LA PÁGINA A CARGAR EN ESPAÑOL
+                await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9' }); 
                 page.setDefaultNavigationTimeout(240000); 
 
                 const browserSession = await page.target().createCDPSession();
@@ -171,6 +151,15 @@ function obtenerFechasDinamicas() {
                         await delay(15000); 
                     } else {
                         log.info(`Sesión ya activa. Saltando login para ${nombreReporte}...`);
+                    }
+
+                    // 📸 FOTO DE DEBUGGING INYECTADA AQUÍ
+                    try {
+                        let shot = await page.screenshot({ fullPage: true });
+                        let photoUrl = await subirAAzure(`VISTA_ROBOT_${Date.now()}.png`, shot, 'DEBUG');
+                        log.success(`📸 Captura de pantalla tomada y subida a: ${photoUrl}`);
+                    } catch(e) {
+                        log.error(`No se pudo tomar foto: ${e.message}`);
                     }
 
                     await page.evaluate(() => {
