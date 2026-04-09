@@ -1,5 +1,5 @@
 require('dotenv').config(); 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
@@ -120,9 +120,10 @@ function obtenerFechasDinamicas() {
         log.info(`📅 PROCESANDO FECHA: ${fechaReporteFinal}`);
 
 const browser = await puppeteer.launch({
-        headless: "new",
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
-    });
+            executablePath: '/usr/bin/chromium',
+            headless: "new",
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
+        });
 
         browser.on('targetcreated', async (target) => {
             if (target.type() === 'page') {
