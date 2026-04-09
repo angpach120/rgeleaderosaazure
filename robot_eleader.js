@@ -98,8 +98,10 @@ function obtenerFechasDinamicas() {
     hoyLocal.setHours(hoyLocal.getHours() - 4); 
     const antier = new Date(hoyLocal); antier.setDate(antier.getDate() - 2);
     const ayer = new Date(hoyLocal); ayer.setDate(ayer.getDate() - 1);
+    const hoy = new Date(hoyLocal); // Añadido para procesar el día actual
     fechas.push(new Date(Date.UTC(antier.getFullYear(), antier.getMonth(), antier.getDate(), 12, 0, 0)));
     fechas.push(new Date(Date.UTC(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 12, 0, 0)));
+    fechas.push(new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 12, 0, 0)));
     return fechas;
 }
 
@@ -119,8 +121,8 @@ function obtenerFechasDinamicas() {
         
         log.info(`📅 PROCESANDO FECHA: ${fechaReporteFinal}`);
 
-const browser = await puppeteer.launch({
-            executablePath: '/usr/bin/chromium',
+        const browser = await puppeteer.launch({
+            executablePath: '/usr/bin/chromium', 
             headless: "new",
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
         });
@@ -153,11 +155,17 @@ const browser = await puppeteer.launch({
                     await page.goto('https://mob.eleader.biz/mob2301/SysLoginAjax.aspx', { waitUntil: 'networkidle2' });
                     await delay(3000);
                     
-                    await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
-                    await page.type('#txtFirm', process.env.ELEADER_COMPANY || '', { delay: 50 });
-                    await page.type('#txtPassword', process.env.ELEADER_PASS || '', { delay: 50 });
-                    await page.keyboard.press('Enter');
-                    await delay(15000); 
+                    // CORRECCIÓN 1: Verificamos si estamos logueados antes de escribir
+                    const necesitaLogin = await page.$('#txtUser');
+                    if (necesitaLogin) {
+                        await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
+                        await page.type('#txtFirm', process.env.ELEADER_COMPANY || '', { delay: 50 });
+                        await page.type('#txtPassword', process.env.ELEADER_PASS || '', { delay: 50 });
+                        await page.keyboard.press('Enter');
+                        await delay(15000); 
+                    } else {
+                        log.info(`Sesión ya activa. Saltando login para ${nombreReporte}...`);
+                    }
 
                     await page.evaluate(() => {
                         const items = Array.from(document.querySelectorAll('a, span'));
@@ -174,9 +182,27 @@ const browser = await puppeteer.launch({
                     await delay(10000); 
 
                     const searchInputSelector = 'input[id*="srch"], input[placeholder*="ntroduce"]';
-                    await page.waitForSelector(searchInputSelector, { timeout: 20000 });
-                    await page.type(searchInputSelector, nombreReporte);
-                    await page.keyboard.press('Enter');
+                    
+                    // CORRECCIÓN 2: Buscar el buscador en TODOS los frames
+                    let searchFound = false;
+                    for (const frame of page.frames()) {
+                        try {
+                            const input = await frame.$(searchInputSelector);
+                            if (input) {
+                                await input.type(nombreReporte);
+                                await page.keyboard.press('Enter');
+                                searchFound = true;
+                                break;
+                            }
+                        } catch(e) {}
+                    }
+
+                    if (!searchFound) {
+                        log.warn(`Buscador escondido en ${nombreReporte}. Buscando en página principal...`);
+                        await page.waitForSelector(searchInputSelector, { timeout: 10000 });
+                        await page.type(searchInputSelector, nombreReporte);
+                        await page.keyboard.press('Enter');
+                    }
                     await delay(5000);
 
                     await page.evaluate((target) => {
