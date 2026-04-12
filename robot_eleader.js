@@ -984,8 +984,8 @@ function obtenerFechasDinamicas() {
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
                                     
-                                    // 🚀 NOMENCLATURA EXACTA FASE 2: Código de PDV_Nombre completo del producto_Representante
-                                    let baseNameDataF2 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}`;
+                                    // 🚀 NOMENCLATURA EXACTA FASE 2: Código de PDV_Nombre completo del producto_Representante_Fecha
+let baseNameDataF2 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
 
                                     let fotosEnFilaTemp = [];
                                     for(let C of photoHeaders) {
@@ -1456,7 +1456,7 @@ function obtenerFechasDinamicas() {
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
                                     
                                     // 🚀 NOMENCLATURA EXACTA FASE 3: Código de PDV_Nombre completo del producto_Representante
-                                    let baseNameDataF3 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}`;
+let baseNameDataF3 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
 
                                     let fotosEnFilaTemp = [];
                                     for(let C of photoHeaders) {
