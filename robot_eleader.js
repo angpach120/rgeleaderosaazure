@@ -1,4 +1,6 @@
-const puppeteer = require('puppeteer');
+require('dotenv').config(); 
+// Usamos puppeteer-core para nuestra imagen ligera de Docker en Azure ACI
+const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
@@ -16,9 +18,13 @@ const AZURE_CONTAINER_OSA = 'fotos-osa';
 const AZURE_CONTAINER_AC = 'fotos-ac';
 
 if (!AZURE_CONNECTION_STRING) {
-    console.error("\n[FATAL] Falta configurar AZURE_CONNECTION_STRING en los Secrets de GitHub.\n");
+    console.error("\n[FATAL] Falta configurar AZURE_CONNECTION_STRING en los Secrets.\n");
     process.exit(1);
 }
+
+const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONNECTION_STRING);
+const containerClientOsa = blobServiceClient.getContainerClient(AZURE_CONTAINER_OSA);
+const containerClientAc = blobServiceClient.getContainerClient(AZURE_CONTAINER_AC);
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -35,20 +41,6 @@ const UNIDADES_DE_NEGOCIO = { "Fotos Osa_ALI": "Alimentos", "Fotos Osa_COA": "Co
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
 
-// CÁMARA DE SEGURIDAD (TOMA SCREENSHOTS)
-async function tomarCaptura(page, pasoNombre, reporteNombre, fecha) {
-    try {
-        const nombreLimpio = reporteNombre.replace(/[^a-zA-Z0-9]/g, '_');
-        const fileName = `DEBUG_${fecha}_${nombreLimpio}_${pasoNombre}.png`;
-        const filePath = path.join(process.cwd(), 'downloads', fileName);
-        await page.screenshot({ path: filePath, fullPage: true });
-        log.info(`📸 Captura de seguridad guardada: ${fileName}`);
-    } catch (e) {
-        log.warn(`No se pudo tomar la captura ${pasoNombre}`);
-    }
-}
-
-// LIMPIADOR: Sin paréntesis, sin comas y con más espacio
 const limpiarTextoParaArchivo = (texto, maxLength = 100) => {
     if (!texto) return 'ND';
     let limpio = String(texto).replace(/[<>:"/\\|?*(),]/g, ' ').replace(/\s+/g, '_').trim();
@@ -56,7 +48,6 @@ const limpiarTextoParaArchivo = (texto, maxLength = 100) => {
     return limpio;
 };
 
-// ESCUDO NORMALIZADOR
 const normalizarKey = (fileName) => {
     if (!fileName) return "";
     let decoded = fileName;
@@ -71,7 +62,6 @@ const normalizarKey = (fileName) => {
     return name + ext;
 };
 
-// MOTOR INTELIGENTE DE EXTRACCIÓN DE NOMBRES
 function extraerRepresentante(url, fechaString) {
     if (!url) return 'DESCONOCIDO';
     try {
@@ -106,12 +96,6 @@ async function descargarFoto(url, maxRetries = 3) {
     }
 }
 
-// CLIENTES DUALES DE AZURE
-const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONNECTION_STRING);
-const containerClientOsa = blobServiceClient.getContainerClient(AZURE_CONTAINER_OSA);
-const containerClientAc = blobServiceClient.getContainerClient(AZURE_CONTAINER_AC);
-
-// FUNCIÓN DE SUBIDA ADAPTADA PARA RECIBIR EL CONTENEDOR DESTINO
 async function subirAAzure(nombreArchivo, buffer, rutaCarpetaVirtual, targetContainerClient, maxRetries = 3) {
     const blobName = `${rutaCarpetaVirtual}/${nombreArchivo}`;
     const blockBlobClient = targetContainerClient.getBlockBlobClient(blobName);
@@ -178,8 +162,11 @@ function obtenerFechasDinamicas() {
         log.info(`=========================================================`);
 
         let masterExcelData = [];
+        
+        // <-- AQUI ESTA LA CONFIGURACIÓN CORRECTA PARA ACI LINUX
         const browser = await puppeteer.launch({
-            headless: "new",
+            executablePath: '/usr/bin/google-chrome', 
+            headless: 'new',
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process', '--window-size=1920,1080']
         });
 
@@ -196,7 +183,7 @@ function obtenerFechasDinamicas() {
 
         try {
             // ==============================================================================
-            // FASE 1: FOTOS OSA ORIGINAL (USA CONTENEDOR OSA Y NOMENCLATURA VIEJA)
+            // FASE 1: FOTOS OSA ORIGINAL 
             // ==============================================================================
             log.info(`--- COMENZANDO FASE 1: REPORTES OSA ---`);
             for (const nombreReporte of REPORTES_A_DESCARGAR) {
@@ -272,7 +259,7 @@ function obtenerFechasDinamicas() {
                     }, nombreReporte);
 
                     if (!reportClicked) {
-                        log.error(`[OMITIDO] No se encontró en pantalla el reporte ${nombreReporte}.`);
+                        log.warn(`[OMITIDO] No se encontró en pantalla el reporte ${nombreReporte}.`);
                         await page.close(); 
                         continue;
                     }
@@ -309,7 +296,6 @@ function obtenerFechasDinamicas() {
                         } catch(e) {}
                     }
                     await delay(4000);
-                    await tomarCaptura(page, '3_Despues_de_Fecha', nombreReporte, fechaReporteFinal);
 
                     for (const frame of page.frames()) {
                         await frame.evaluate(() => {
@@ -361,7 +347,6 @@ function obtenerFechasDinamicas() {
                         if (clicked) { activeFrame = frame; break; }
                     }
                     await delay(4000); 
-                    await tomarCaptura(page, '4_Filtro_Representantes_Abierto', nombreReporte, fechaReporteFinal);
 
                     const mapData = await activeFrame.evaluate(() => {
                         const chks = Array.from(document.querySelectorAll('input[type="checkbox"][id*="innerRealExecutor"]'));
@@ -372,8 +357,7 @@ function obtenerFechasDinamicas() {
                     });
 
                     if(!mapData) {
-                        log.warn(`[VACÍO] No se encontraron representantes. El equipo no trabajó este reporte.`);
-                        await tomarCaptura(page, 'ERROR_Tabla_Vacia_O_Sin_Nombres', nombreReporte, fechaReporteFinal);
+                        log.warn(`[VACÍO] No se encontraron representantes.`);
                         await page.close();
                         continue;
                     }
@@ -421,8 +405,6 @@ function obtenerFechasDinamicas() {
                             await pause(1500);
                         }, baseIdGlobal, chunks[i]);
                         
-                        await tomarCaptura(page, `5_Representantes_Seleccionados_P${i+1}`, nombreReporte, fechaReporteFinal);
-
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
                             if (btn) btn.click();
@@ -623,7 +605,7 @@ function obtenerFechasDinamicas() {
                         fs.unlinkSync(filePath); 
                     } 
                 } catch (errorNavegacion) {
-                    await tomarCaptura(page, 'CRITICO_Fallo_Navegacion', nombreReporte, fechaReporteFinal);
+                    log.error('Fallo en navegacion F1');
                 }
                 await page.close(); 
             } 
@@ -722,7 +704,7 @@ function obtenerFechasDinamicas() {
                     }, nombreReporte);
 
                     if (!reportClicked) {
-                        log.error(`[OMITIDO] No se encontró en pantalla el reporte ${nombreReporte}.`);
+                        log.warn(`[OMITIDO] No se encontró en pantalla el reporte ${nombreReporte}.`);
                         await page.close(); 
                         continue;
                     }
@@ -759,7 +741,6 @@ function obtenerFechasDinamicas() {
                         } catch(e) {}
                     }
                     await delay(4000);
-                    await tomarCaptura(page, '3_Despues_de_Fecha_F2', nombreReporte, fechaReporteFinal);
 
                     for (const frame of page.frames()) {
                         await frame.evaluate(() => {
@@ -811,7 +792,6 @@ function obtenerFechasDinamicas() {
                         if (clicked) { activeFrame = frame; break; }
                     }
                     await delay(4000); 
-                    await tomarCaptura(page, '4_Filtro_Representantes_Abierto_F2', nombreReporte, fechaReporteFinal);
 
                     const mapData = await activeFrame.evaluate(() => {
                         const chks = Array.from(document.querySelectorAll('input[type="checkbox"][id*="innerRealExecutor"]'));
@@ -822,8 +802,7 @@ function obtenerFechasDinamicas() {
                     });
 
                     if(!mapData) {
-                        log.warn(`[VACÍO] No se encontraron representantes. El equipo no trabajó este reporte.`);
-                        await tomarCaptura(page, 'ERROR_Tabla_Vacia_O_Sin_Nombres_F2', nombreReporte, fechaReporteFinal);
+                        log.warn(`[VACÍO] No se encontraron representantes.`);
                         await page.close();
                         continue;
                     }
@@ -871,8 +850,6 @@ function obtenerFechasDinamicas() {
                             if (btnOpen) btnOpen.click();
                             await pause(1500);
                         }, baseIdGlobal, chunks[i]);
-                        
-                        await tomarCaptura(page, `5_Representantes_Seleccionados_P${i+1}_F2`, nombreReporte, fechaReporteFinal);
 
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
@@ -1006,8 +983,6 @@ function obtenerFechasDinamicas() {
                                         
                                         if (linkVal && (linkVal.toLowerCase().includes('.jpg') || linkVal.toLowerCase().includes('.png') || linkVal.toLowerCase().includes('.jpeg'))) {
                                             let originalBaseName = linkVal.split('\\').pop().split('/').pop();
-                                            // La función de limpieza se encargará de remover el '/' de 'Foto / Photo' y convertirlo a 'Foto_Photo' 
-                                            // de forma natural para cumplir con los estándares de Azure y de tu formato.
                                             let tipoFotoLimpio = limpiarTextoParaArchivo(header, 30); 
                                             let ext = path.extname(originalBaseName) || '.jpg';
                                             if (!ext.includes('.')) ext = '.jpg';
@@ -1080,7 +1055,7 @@ function obtenerFechasDinamicas() {
                         fs.unlinkSync(filePath); 
                     } 
                 } catch (errorNavegacion) {
-                    await tomarCaptura(page, 'CRITICO_Fallo_Navegacion_F2', nombreReporte, fechaReporteFinal);
+                    log.error('Fallo en navegacion F2');
                 }
                 await page.close(); 
             }
@@ -1090,7 +1065,7 @@ function obtenerFechasDinamicas() {
         }
 
         // =========================================================
-        // REESCRITURA TOTAL DEL MASTER EXCEL EN AZURE 
+        // REESCRITURA TOTAL DEL MASTER EXCEL EN AZURE POR DÍA
         // =========================================================
         if (masterExcelData.length > 0) {
             log.info(`CONSOLIDANDO Y REESCRIBIENDO LA DATA DE LA FECHA ${fechaReporteFinal}...`);
@@ -1100,21 +1075,24 @@ function obtenerFechasDinamicas() {
                 xlsx.utils.book_append_sheet(newWb, newWs, "Reporte Consolidado");
                 let excelBuffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
                 
-                const masterFileName = `Reporte_Fotos_Categoria_${fechaReporteFinal}.xlsx`;
+                const masterFileName = `Master_${fechaReporteFinal}.xlsx`;
                 
-                // ⚠️ NOTA DE ARQUITECTURA: El Excel Maestro consolidado se sigue enviando a containerClientOsa para no romper tu base de datos PowerBI central.
-                const excelUrl = await subirAAzure(masterFileName, excelBuffer, 'EXCEL_HISTORICO', containerClientOsa);
-                log.success(`¡Base de datos ${fechaReporteFinal} actualizada correctamente en Azure!`);
+                // Usando el mismo directorio que tenías en tu script
+                const blobName = `EXCEL_DIARIO/${masterFileName}`;
+                const blockBlobClient = containerClientOsa.getBlockBlobClient(blobName);
+                await blockBlobClient.uploadData(excelBuffer, { blobHTTPHeaders: { blobContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
+                
+                log.success(`¡Consolidado de ${fechaReporteFinal} cerrado y guardado!`);
             } catch (errMaster) {
-                log.error(`Fallo final subiendo el reporte maestro a Azure: ${errMaster.message}`);
+                log.error(`Error subiendo el Master Excel: ${errMaster.message}`);
             }
         } else {
-            log.warn(`Sin datos consolidados para la fecha ${fechaReporteFinal}.`);
+            log.warn(`Sin datos para la fecha ${fechaReporteFinal}.`);
         }
     }
 
     log.success(`===================================================`);
-    log.success(`ROBOT DE EXTRACCIÓN AUTOMATIZADA COMPLETÓ SU CICLO`);
+    log.success(`✅ EXTRACCIÓN DIARIA FINALIZADA CON ÉXITO`);
     log.success(`===================================================`);
     process.exit(0);
 
