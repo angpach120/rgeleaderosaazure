@@ -16,6 +16,7 @@ const { BlobServiceClient } = require('@azure/storage-blob');
 const AZURE_CONNECTION_STRING = process.env.AZURE_CONNECTION_STRING; 
 const AZURE_CONTAINER_OSA = 'fotos-osa'; 
 const AZURE_CONTAINER_AC = 'fotos-ac';
+const AZURE_CONTAINER_PROMO = 'fotos-promo';
 
 if (!AZURE_CONNECTION_STRING) {
     console.error("\n[FATAL] Falta configurar AZURE_CONNECTION_STRING en los Secrets de GitHub.\n");
@@ -65,7 +66,7 @@ function extraerRepresentante(url, fechaString) {
         let baseName = url.split('/').pop(); 
         if (baseName.includes(fechaString)) {
             let parteIzquierda = baseName.split(`_${fechaString}`)[0];
-            const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa'];
+const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa', 'promo', 'promociones'];
             let tokens = parteIzquierda.split('_');
             let nombreFinalTokens = [];
             for (let i = tokens.length - 1; i >= 0; i--) {
@@ -93,10 +94,11 @@ async function descargarFoto(url, maxRetries = 3) {
     }
 }
 
-// 🛠️ CIMIENTOS CORREGIDOS: Clientes para ambos contenedores
+// 🛠️ CIMIENTOS CORREGIDOS: Clientes para los tres contenedores
 const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONNECTION_STRING);
 const containerClientOsa = blobServiceClient.getContainerClient(AZURE_CONTAINER_OSA);
 const containerClientAc = blobServiceClient.getContainerClient(AZURE_CONTAINER_AC);
+const containerClientPromo = blobServiceClient.getContainerClient(AZURE_CONTAINER_PROMO); // <-- AGREGAR ESTA LÍNEA
 
 // 🛠️ CIMIENTOS CORREGIDOS: La función ahora acepta targetContainerClient
 async function subirAAzure(nombreArchivo, buffer, rutaCarpetaVirtual, targetContainerClient, maxRetries = 3) {
@@ -1083,6 +1085,486 @@ function obtenerFechasDinamicas() {
                 await page.close(); 
             }
 
+            // ==============================================================================
+            // FASE 3: REPORTES PROMOCIONES ACUERDO COMERCIAL (USA CONTENEDOR PROMOCIONES)
+            // ==============================================================================
+            log.info(`=========================================================`);
+            log.success(`🚀 INICIANDO FASE 3: REPORTES PROMOCIONES ACUERDO COMERCIAL`);
+            log.info(`=========================================================`);
+
+            // Instanciamos el nuevo contenedor localmente para no tocar el inicio del script
+            const containerClientPromo = blobServiceClient.getContainerClient('fotos-promo');
+
+            const REPORTES_FASE_3 = [
+                "Promociones Acuerdo Comercial Alimentos",
+                "Promociones Acuerdo Comercial Coasis",
+                "Promociones Acuerdo Comercial CPH",
+                "Promociones Acuerdo Comercial Snacks"
+            ];
+
+            const UNIDADES_FASE_3 = {
+                "Promociones Acuerdo Comercial Alimentos": "Alimentos",
+                "Promociones Acuerdo Comercial Coasis": "Coasis",
+                "Promociones Acuerdo Comercial CPH": "CPH",
+                "Promociones Acuerdo Comercial Snacks": "Snacks"
+            };
+
+            for (const nombreReporte of REPORTES_FASE_3) {
+                const unidadNegocioActual = UNIDADES_FASE_3[nombreReporte] || "General";
+                log.info(`>>> PROCESANDO REPORTE FASE 3: ${nombreReporte} (${unidadNegocioActual})`);
+
+                const page = await browser.newPage();
+                await page.setViewport({ width: 1920, height: 1080 });
+                await page.evaluateOnNewDocument(() => { window.name = '_eld_'; });
+                page.setDefaultNavigationTimeout(240000); 
+                page.setDefaultTimeout(240000);
+
+                const browserSession = await page.target().createCDPSession();
+                await browserSession.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadPath, eventsEnabled: true });
+
+                try {
+                    log.info('Paso 1: Login (Fase 3)...');
+                    await page.goto('https://mob.eleader.biz/mob2301/SysLoginAjax.aspx', { waitUntil: 'networkidle2' });
+                    await delay(3000);
+                    
+                    const txtUserExists = await page.$('#txtUser');
+                    if (txtUserExists) {
+                        await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
+                        await page.type('#txtFirm', process.env.ELEADER_COMPANY || '', { delay: 50 });
+                        await page.type('#txtPassword', process.env.ELEADER_PASS || '', { delay: 50 });
+                        await Promise.all([
+                            page.keyboard.press('Enter'),
+                            page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}) 
+                        ]);
+                    }
+
+                    log.info('Paso 2: Navegando al Dashboard (Fase 3)...');
+                    await delay(5000); 
+                    await page.evaluate(() => {
+                        const elements = Array.from(document.querySelectorAll('a, span, div'));
+                        const menu = elements.find(el => el.textContent.trim() === 'Informes');
+                        if (menu) menu.click();
+                    });
+                    await delay(3000); 
+
+                    await page.evaluate(() => {
+                        const elements = Array.from(document.querySelectorAll('a, span, div'));
+                        const panel = elements.find(el => el.textContent.trim() === 'Panel de informe');
+                        if (panel) panel.click();
+                    });
+                    await delay(10000); 
+
+                    await page.evaluate(() => {
+                        const elements = Array.from(document.querySelectorAll('a, span, div, li'));
+                        const tareas = elements.find(el => el.textContent.trim() === 'Informes de tareas');
+                        if (tareas) tareas.click();
+                    });
+                    await delay(6000); 
+
+                    log.info(`Paso 3: Buscando el reporte: ${nombreReporte}...`);
+                    const searchInputSelector = 'input[id*="srch"], input[placeholder*="ntroduce"]';
+                    try {
+                        await page.waitForSelector(searchInputSelector, { timeout: 10000 });
+                        await page.focus(searchInputSelector);
+                        await page.click(searchInputSelector, { clickCount: 3 });
+                        await page.keyboard.press('Backspace');
+                        await page.type(searchInputSelector, nombreReporte, { delay: 100 });
+                        await delay(1000);
+                        await page.keyboard.press('Enter');
+                        await delay(8000); 
+                    } catch (err) {}
+
+                    const reportClicked = await page.evaluate((targetName) => {
+                        const links = Array.from(document.querySelectorAll('a, span, td'));
+                        const target = links.find(el => el.textContent.toLowerCase().replace(/\s+/g, ' ').trim().includes(targetName.toLowerCase()));
+                        if (target) { target.click(); return true; }
+                        return false;
+                    }, nombreReporte);
+
+                    if (!reportClicked) {
+                        log.warn(`[OMITIDO] No se encontró en pantalla el reporte ${nombreReporte}.`);
+                        await page.close(); 
+                        continue;
+                    }
+
+                    await delay(2000); 
+                    await page.evaluate(() => {
+                        const elements = Array.from(document.querySelectorAll('a, span, div, button, input'));
+                        const btn = elements.find(el => (el.textContent || el.value || '').toLowerCase().includes('pasar a informe'));
+                        if (btn) btn.click();
+                    });
+                    
+                    log.info('Paso 4: Entorno de filtros cargando (Fase 3)...');
+                    await delay(15000); 
+
+                    log.info(`Paso 5: Forzando Fecha Estricta...`);
+                    for (const frame of page.frames()) {
+                        try {
+                            await frame.evaluate((yVal, mVal, dVal) => {
+                                const inputsY = document.querySelectorAll('input[placeholder="AAAA"], input[placeholder="YYYY"], input[placeholder="yyyy"]');
+                                const inputsM = document.querySelectorAll('input[placeholder="MM"], input[placeholder="mm"]');
+                                const inputsD = document.querySelectorAll('input[placeholder="DD"], input[placeholder="dd"]');
+                                
+                                for (let k = 0; k < inputsY.length; k++) {
+                                    if (inputsY[k]) { inputsY[k].value = yVal; inputsY[k].dispatchEvent(new Event('input', {bubbles:true})); }
+                                    if (inputsM[k]) { inputsM[k].value = mVal; inputsM[k].dispatchEvent(new Event('input', {bubbles:true})); }
+                                    if (inputsD[k]) { 
+                                        inputsD[k].value = dVal; 
+                                        inputsD[k].dispatchEvent(new Event('input', {bubbles:true})); 
+                                        inputsD[k].dispatchEvent(new Event('change', {bubbles:true})); 
+                                        inputsD[k].dispatchEvent(new Event('blur', {bubbles:true})); 
+                                    }
+                                }
+                            }, y, m, d);
+                        } catch(e) {}
+                    }
+                    await delay(4000);
+
+                    for (const frame of page.frames()) {
+                        await frame.evaluate(() => {
+                            const btnOpt = document.querySelector('.ExpOptBtn');
+                            if (btnOpt) btnOpt.click();
+                        }).catch(()=>{});
+                    }
+                    await delay(3000); 
+
+                    for (const frame of page.frames()) {
+                        await frame.evaluate(() => {
+                            const chkThumbs = document.querySelector('input[name$="$chkXlsxWithThumbs"]');
+                            if (chkThumbs && !chkThumbs.checked) chkThumbs.click();
+                            const chkLinks = document.querySelector('input[name$="$chkXlsxWithOrgImages"]');
+                            if (chkLinks && !chkLinks.checked) chkLinks.click();
+                            const chkDN = document.querySelector('input[name$="$chkDN"]');
+                            if (chkDN && chkDN.checked) chkDN.click();
+                        }).catch(()=>{});
+                    }
+                    await delay(3000); 
+
+                    for (const frame of page.frames()) {
+                        try {
+                            const col1InputSelector = 'input[name$="$acCol1"]';
+                            const inputExists = await frame.$(col1InputSelector);
+                            if (inputExists) {
+                                await frame.evaluate((selector) => { document.querySelector(selector).value = ''; }, col1InputSelector);
+                                await inputExists.type('Nombre del objeto', { delay: 50 });
+                                await delay(1000);
+                                await inputExists.press('Enter');
+                            }
+                        } catch (err) {}
+                    }
+                    await delay(3000);
+
+                    log.info('Paso 6: Mapeando Representantes (Fase 3)...');
+                    let activeFrame = null;
+                    for (const frame of page.frames()) {
+                        const clicked = await frame.evaluate(() => {
+                            const tds = Array.from(document.querySelectorAll('td'));
+                            const lbl = tds.find(td => td.textContent.trim() === 'Representante:');
+                            if (lbl && lbl.nextElementSibling) {
+                                const btn = lbl.nextElementSibling.querySelector('input[type="button"], .DDBtn, img');
+                                if (btn) { btn.click(); return true; }
+                            }
+                            return false;
+                        }).catch(() => false);
+
+                        if (clicked) { activeFrame = frame; break; }
+                    }
+                    await delay(4000); 
+
+                    const mapData = await activeFrame.evaluate(() => {
+                        const chks = Array.from(document.querySelectorAll('input[type="checkbox"][id*="innerRealExecutor"]'));
+                        if (chks.length === 0) return null;
+                        const firstId = chks[0].id;
+                        const baseId = firstId.substring(0, firstId.lastIndexOf('_')); 
+                        return { baseId: baseId, ids: chks.map(c => c.id) };
+                    });
+
+                    if(!mapData) {
+                        log.warn(`[VACÍO] Reporte de Promociones en blanco. Saltando...`);
+                        await page.close();
+                        continue;
+                    }
+
+                    let baseIdGlobal = mapData.baseId;
+                    let chkIdsGlobal = mapData.ids;
+                    
+                    const numParts = chkIdsGlobal.length > 50 ? 4 : 2; 
+                    const chunkSize = Math.ceil(chkIdsGlobal.length / numParts); 
+                    const chunks = [];
+                    for (let i = 0; i < chkIdsGlobal.length; i += chunkSize) {
+                        chunks.push(chkIdsGlobal.slice(i, i + chunkSize));
+                    }
+
+                    for (let i = 0; i < chunks.length; i++) {
+                        const nombreParte = `${nombreReporte}_Parte${i + 1}`;
+                        log.info(`\n--- DESCARGANDO Y EXPORTANDO FASE 3: ${nombreParte} ---`);
+
+                        let currentFrame = null;
+                        for (const frame of page.frames()) {
+                            const isAlive = await frame.evaluate((bId) => !!document.getElementById(bId + '_btn'), baseIdGlobal).catch(()=>false);
+                            if (isAlive) { currentFrame = frame; break; }
+                        }
+
+                        if (!currentFrame) continue;
+
+                        await currentFrame.evaluate(async (bId, chunkIds) => {
+                            const pause = (ms) => new Promise(res => setTimeout(res, ms));
+                            const btnOpen = document.getElementById(bId + '_btn');
+                            if (btnOpen) btnOpen.click();
+                            await pause(1000);
+                            const btnClear = document.getElementById('btnClearAll' + bId);
+                            if (btnClear) btnClear.click();
+                            else if (typeof DDChLSA === 'function') DDChLSA('divList' + bId, false, 0, 1);
+                            await pause(1000);
+                            
+                            for (let id of chunkIds) {
+                                const chk = document.getElementById(id);
+                                if (chk && !chk.checked) {
+                                    chk.click(); 
+                                    chk.dispatchEvent(new Event('change', { bubbles: true }));
+                                }
+                            }
+                            await pause(1000);
+                            if (btnOpen) btnOpen.click();
+                            await pause(1000);
+                        }, baseIdGlobal, chunks[i]);
+                        
+                        await currentFrame.evaluate(() => {
+                            const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
+                            if (btn) btn.click();
+                        });
+
+                        let filePath;
+                        const start = Date.now();
+                        while (Date.now() - start < 180000) { 
+                            const files = fs.readdirSync(downloadPath);
+                            const finalFile = files.find(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
+                            if (finalFile) {
+                                const fullPath = path.join(downloadPath, finalFile);
+                                if (fs.statSync(fullPath).size > 100) {
+                                    await delay(4000); 
+                                    filePath = fullPath;
+                                    break;
+                                }
+                            }
+                            await delay(4000);
+                        }
+
+                        if (!filePath) {
+                            log.error(`Timeout en el Parte ${i+1} de Fase 3. Omitiendo...`);
+                            continue;
+                        }
+
+                        try {
+                            const zip = new AdmZip(filePath);
+                            const zipEntries = zip.getEntries();
+                            let tempRows = []; 
+
+                            const excelEntry = zipEntries.find(e => !e.isDirectory && (e.entryName.toLowerCase().endsWith('.xlsx') || e.entryName.toLowerCase().endsWith('.xls') || e.entryName.toLowerCase().endsWith('.csv')));
+                            
+                            if (excelEntry) {
+                                let workbook = xlsx.read(excelEntry.getData(), { type: 'buffer', cellDates: true });
+                                let sheetName = workbook.SheetNames[0];
+                                let sheet = workbook.Sheets[sheetName];
+                                const range = xlsx.utils.decode_range(sheet['!ref']);
+                                
+                                let headerRowIdx = range.s.r;
+                                for(let R = range.s.r; R <= range.e.r; ++R) {
+                                    let foundHeader = false;
+                                    for(let C = range.s.c; C <= range.e.c; ++C) {
+                                        let cell = sheet[xlsx.utils.encode_cell({c:C, r:R})];
+                                        let val = cell ? String(cell.v).trim().toLowerCase() : "";
+                                        if (['representante', 'código de pdv', 'id tienda', 'taskid', 'activityid', 'división', 'área'].includes(val)) {
+                                            headerRowIdx = R; foundHeader = true; break;
+                                        }
+                                    }
+                                    if(foundHeader) break;
+                                }
+
+                                let headers = []; let photoHeaders = []; let normalHeaders = [];
+                                for(let C = range.s.c; C <= range.e.c; ++C) {
+                                    let cell = sheet[xlsx.utils.encode_cell({c:C, r:headerRowIdx})];
+                                    let headerName = cell ? String(cell.v).trim() : `Columna_${C}`;
+                                    headers[C] = headerName;
+                                    // 🚀 EL DETECTOR ATRAPA: Foto / Photo, Foto impresora, Foto fleje, y columnas llamadas simplemente "Foto" o " Foto "
+                                    if (headerName.toLowerCase().includes('foto') && headerName.toLowerCase() !== 'fotos') {
+                                        photoHeaders.push(C);
+                                    } else {
+                                        normalHeaders.push(C);
+                                    }
+                                }
+
+                                for(let R = headerRowIdx + 1; R <= range.e.r; ++R) {
+                                    let isEmptyRow = true;
+                                    let baseRow = {};
+                                    for(let C of normalHeaders) {
+                                        let cell = sheet[xlsx.utils.encode_cell({c:C, r:R})];
+                                        let val = cell ? (cell.w !== undefined ? cell.w : cell.v) : "";
+                                        if (cell && cell.v instanceof Date) {
+                                            val = cell.v.toISOString().replace('T', ' ').substring(0, 19); 
+                                        }
+                                        if (val !== "") isEmptyRow = false;
+                                        baseRow[headers[C]] = val;
+                                    }
+                                    if (isEmptyRow) continue; 
+
+                                    // PROTECCIÓN DE FECHAS ESTRICTA
+                                    let fechaRaw = baseRow['fecha'] || baseRow['Fecha'] || baseRow['Fecha de realización'];
+                                    let fechaLimpiaStr = fechaReporteFinal; 
+                                    if (fechaRaw) {
+                                        if (typeof fechaRaw === 'string') {
+                                            let soloFecha = fechaRaw.split(' ')[0]; 
+                                            if (soloFecha.includes('/')) {
+                                                let partes = soloFecha.split('/');
+                                                if (partes[2] && partes[2].length === 4) { 
+                                                    fechaLimpiaStr = `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+                                                } else if (partes[0] && partes[0].length === 4) { 
+                                                    fechaLimpiaStr = `${partes[0]}-${partes[1].padStart(2, '0')}-${partes[2].padStart(2, '0')}`;
+                                                }
+                                            } else if (soloFecha.includes('-')) {
+                                                fechaLimpiaStr = soloFecha; 
+                                            }
+                                        } else if (fechaRaw instanceof Date) {
+                                            fechaLimpiaStr = fechaRaw.toISOString().split('T')[0];
+                                        } else if (typeof fechaRaw === 'number') {
+                                            let dObj = new Date(Math.round((fechaRaw - 25569) * 864e5));
+                                            fechaLimpiaStr = dObj.toISOString().split('T')[0];
+                                        }
+                                    }
+                                    if (!fechaLimpiaStr || fechaLimpiaStr.length < 10) fechaLimpiaStr = fechaReporteFinal;
+                                    baseRow['Fecha de realización'] = fechaLimpiaStr; 
+
+                                    let pdvRaw = baseRow['ID Tienda'] || baseRow['Código de PDV'] || 'ND';
+                                    let productoRaw = baseRow['Nombre del producto'] || baseRow['Nombre completo del producto'] || 'ND';
+                                    let representanteRaw = baseRow['Representante'];
+                                    
+                                    if (!representanteRaw || String(representanteRaw).trim() === '') {
+                                        if (photoHeaders.length > 0) {
+                                            let cell = sheet[xlsx.utils.encode_cell({c:photoHeaders[0], r:R})];
+                                            let firstPhotoLink = (cell && cell.l && cell.l.Target) ? cell.l.Target : (cell ? String(cell.v) : "");
+                                            representanteRaw = extraerRepresentante(firstPhotoLink, fechaLimpiaStr);
+                                        } else {
+                                            representanteRaw = 'DESCONOCIDO';
+                                        }
+                                    } else {
+                                        representanteRaw = String(representanteRaw).toUpperCase();
+                                    }
+                                    baseRow['Representante'] = representanteRaw;
+
+                                    let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
+                                    let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
+                                    let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
+                                    
+                                    // 🚀 NOMENCLATURA EXACTA FASE 3: Código de PDV_Nombre completo del producto_Representante
+                                    let baseNameDataF3 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}`;
+
+                                    let fotosEnFilaTemp = [];
+                                    for(let C of photoHeaders) {
+                                        let header = headers[C];
+                                        let cell = sheet[xlsx.utils.encode_cell({c:C, r:R})];
+                                        let linkVal = "";
+                                        
+                                        if (cell && cell.l && cell.l.Target) linkVal = cell.l.Target;
+                                        else if (cell && cell.f) {
+                                            let m = cell.f.match(/"([^"]+\.jpg|[^"]+\.png|[^"]+\.jpeg)"/i);
+                                            if (m) linkVal = m[1];
+                                        } else if (cell && cell.v && (String(cell.v).includes('http') || String(cell.v).includes('files'))) {
+                                            linkVal = String(cell.v);
+                                        }
+                                        
+                                        if (linkVal && (linkVal.toLowerCase().includes('.jpg') || linkVal.toLowerCase().includes('.png') || linkVal.toLowerCase().includes('.jpeg'))) {
+                                            let originalBaseName = linkVal.split('\\').pop().split('/').pop();
+                                            // Limpieza convierte mágicamente "Foto fleje" en "Foto_fleje"
+                                            let tipoFotoLimpio = limpiarTextoParaArchivo(header, 30); 
+                                            let ext = path.extname(originalBaseName) || '.jpg';
+                                            if (!ext.includes('.')) ext = '.jpg';
+                                            
+                                            // 🚀 ARMADO FINAL FASE 3: PDV_Producto_Representante_TipoDeFoto.jpg
+                                            let uniqueImageName = `${baseNameDataF3}_${tipoFotoLimpio}${ext}`;
+                                            fotosEnFilaTemp.push({ tipo: header, uniqueImageName: uniqueImageName, urlVieja: linkVal, originalBaseName: originalBaseName });
+                                        }
+                                    }
+                                    tempRows.push({ unidad: unidadNegocioActual, baseRow: baseRow, fotos: fotosEnFilaTemp });
+                                }
+                            }
+
+                            const fotosAEnviarZip = zipEntries.filter(e => !e.isDirectory && (e.entryName.toLowerCase().endsWith('.jpg') || e.entryName.toLowerCase().endsWith('.png') || e.entryName.toLowerCase().endsWith('.jpeg')));
+                            let zipPhotosMap = {};
+                            fotosAEnviarZip.forEach(e => {
+                                zipPhotosMap[normalizarKey(path.basename(e.entryName))] = e.getData();
+                            });
+
+                            let dictAzureLinks = {}; 
+                            let promesasSubida = [];
+
+                            for (let temp of tempRows) {
+                                for (let fotoObj of temp.fotos) {
+                                    promesasSubida.push(async () => {
+                                        let finalImageName = fotoObj.uniqueImageName;
+                                        const blobName = `${rutaCarpetaVirtual}/${finalImageName}`;
+                                        
+                                        // 🚀 AQUÍ APLICAMOS EL CILIENTE PROMO
+                                        const blockBlobClient = containerClientPromo.getBlockBlobClient(blobName);
+                                        
+                                        const exists = await blockBlobClient.exists().catch(()=>false);
+                                        if (exists) {
+                                            dictAzureLinks[finalImageName] = blockBlobClient.url;
+                                            return; 
+                                        } 
+                                        
+                                        let bufferData = zipPhotosMap[normalizarKey(fotoObj.originalBaseName)];
+                                        if (!bufferData) {
+                                            bufferData = await descargarFoto(fotoObj.urlVieja); 
+                                        }
+
+                                        if (bufferData) {
+                                            // 🚀 SE ENVÍA AL CONTENEDOR FOTOS-PROMO
+                                            let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientPromo);
+                                            if (link) dictAzureLinks[finalImageName] = link;
+                                        }
+                                    });
+                                }
+                            }
+
+                            if (promesasSubida.length > 0) {
+                                log.info(`Subiendo lote de ${promesasSubida.length} fotos al contenedor [fotos-promo]...`);
+                                let contadorSubidas = 0;
+                                const PARALLEL_LIMIT = 50; 
+                                for (let i = 0; i < promesasSubida.length; i += PARALLEL_LIMIT) {
+                                    const lote = promesasSubida.slice(i, i + PARALLEL_LIMIT).map(fn => fn());
+                                    await Promise.all(lote);
+                                    contadorSubidas += lote.length;
+                                }
+                                log.success(`Proceso Fase 3 completado (${contadorSubidas} fotos subidas a fotos-promo).`);
+                            }
+
+                            zipPhotosMap = null; 
+                            
+                            // ENSAMBLE AL MASTER
+                            for (let temp of tempRows) {
+                                if (temp.fotos.length > 0) {
+                                    for (let fotoObj of temp.fotos) {
+                                        let linkDirecto = dictAzureLinks[fotoObj.uniqueImageName] || "Error/Sin subir";
+                                        masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
+                                    }
+                                } else {
+                                    masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
+                                }
+                            }
+
+                        } catch (errorZip) {
+                            log.error(`Error en Parseo Zip Fase 3: ${errorZip.message}`);
+                        }
+                        
+                        fs.unlinkSync(filePath); 
+                    } 
+                } catch (errorNavegacion) {
+                    log.error(`Fallo general navegando en Promociones: ${errorNavegacion.message}`);
+                }
+                
+                await page.close(); 
+            }
+            
         } finally {
             await browser.close(); 
         }
