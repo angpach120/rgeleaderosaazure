@@ -1,5 +1,5 @@
 require('dotenv').config(); 
-// Usamos puppeteer-core para nuestra imagen ligera de Docker en Azure ACI
+// Usamos puppeteer-core para nuestra imagen ligera de Docker
 const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
@@ -11,20 +11,16 @@ const https = require('https');
 const { BlobServiceClient } = require('@azure/storage-blob');
 
 // ==========================================
-// CONFIGURACIONES AZURE Y SEGURIDAD
+// CONFIGURACIONES AZURE Y SEGURIDAD DUALES
 // ==========================================
 const AZURE_CONNECTION_STRING = process.env.AZURE_CONNECTION_STRING; 
 const AZURE_CONTAINER_OSA = 'fotos-osa'; 
 const AZURE_CONTAINER_AC = 'fotos-ac';
 
 if (!AZURE_CONNECTION_STRING) {
-    console.error("\n[FATAL] Falta configurar AZURE_CONNECTION_STRING en los Secrets.\n");
+    console.error("\n[FATAL] Falta configurar AZURE_CONNECTION_STRING en los Secrets de GitHub.\n");
     process.exit(1);
 }
-
-const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONNECTION_STRING);
-const containerClientOsa = blobServiceClient.getContainerClient(AZURE_CONTAINER_OSA);
-const containerClientAc = blobServiceClient.getContainerClient(AZURE_CONTAINER_AC);
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -38,12 +34,13 @@ const log = {
 const REPORTES_A_DESCARGAR = ["Fotos Osa_ALI", "Fotos Osa_COA", "Fotos Osa_CPH", "Fotos Osa_SNA"];
 const UNIDADES_DE_NEGOCIO = { "Fotos Osa_ALI": "Alimentos", "Fotos Osa_COA": "Coasis", "Fotos Osa_CPH": "CPH", "Fotos Osa_SNA": "Snack" };
 
-const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
-const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+// 🚀 TURBINA 3: TÚNEL HTTP PERSISTENTE (Evita el agotamiento de puertos TCP)
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
 
 const limpiarTextoParaArchivo = (texto, maxLength = 100) => {
     if (!texto) return 'ND';
-    let limpio = String(texto).replace(/[<>:"/\\|?*(),]/g, ' ').replace(/\s+/g, '_').trim();
+    let limpio = String(texto).replace(/[<>:"/\\|?*(),]/g, '').replace(/\s+/g, '_').trim();
     if (limpio.length > maxLength) limpio = limpio.substring(0, maxLength); 
     return limpio;
 };
@@ -68,7 +65,7 @@ function extraerRepresentante(url, fechaString) {
         let baseName = url.split('/').pop(); 
         if (baseName.includes(fechaString)) {
             let parteIzquierda = baseName.split(`_${fechaString}`)[0];
-            const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa', 'ac', 'control', 'alimentos', 'coasis', 'p&g', 'pg'];
+            const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa'];
             let tokens = parteIzquierda.split('_');
             let nombreFinalTokens = [];
             for (let i = tokens.length - 1; i >= 0; i--) {
@@ -86,52 +83,55 @@ async function descargarFoto(url, maxRetries = 3) {
     let attempt = 0;
     while (attempt < maxRetries) {
         try {
-            const response = await axios.get(url, { responseType: 'arraybuffer', httpAgent, httpsAgent, timeout: 15000 });
+            const response = await axios.get(url, { responseType: 'arraybuffer', httpAgent, httpsAgent, timeout: 10000 });
             return response.data;
         } catch (error) {
             attempt++;
             if (attempt >= maxRetries) return null;
-            await delay(2000 * attempt);
+            await delay(1000 * attempt);
         }
     }
 }
 
+// 🛠️ CIMIENTOS CORREGIDOS: Clientes para ambos contenedores
+const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONNECTION_STRING);
+const containerClientOsa = blobServiceClient.getContainerClient(AZURE_CONTAINER_OSA);
+const containerClientAc = blobServiceClient.getContainerClient(AZURE_CONTAINER_AC);
+
+// 🛠️ CIMIENTOS CORREGIDOS: La función ahora acepta targetContainerClient
 async function subirAAzure(nombreArchivo, buffer, rutaCarpetaVirtual, targetContainerClient, maxRetries = 3) {
     const blobName = `${rutaCarpetaVirtual}/${nombreArchivo}`;
     const blockBlobClient = targetContainerClient.getBlockBlobClient(blobName);
     let attempt = 0;
     while (attempt < maxRetries) {
         try {
-            const isExcel = nombreArchivo.toLowerCase().endsWith('.xlsx');
-            if (!isExcel) {
-                const exists = await blockBlobClient.exists();
-                if (exists) return blockBlobClient.url; 
-            }
             let contentType = 'application/octet-stream';
             if (nombreArchivo.toLowerCase().endsWith('.png')) contentType = 'image/png';
             if (nombreArchivo.toLowerCase().endsWith('.jpg') || nombreArchivo.toLowerCase().endsWith('.jpeg')) contentType = 'image/jpeg';
-            if (isExcel) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            if (nombreArchivo.toLowerCase().endsWith('.xlsx')) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
             await blockBlobClient.uploadData(buffer, { blobHTTPHeaders: { blobContentType: contentType } });
             return blockBlobClient.url;
         } catch (err) {
             attempt++;
             if (attempt >= maxRetries) return "";
-            await delay(3000 * attempt);
+            await delay(2000 * attempt);
         }
     }
 }
 
+// 🧠 MOTOR DE FECHAS DINÁMICAS (Antier, Ayer y Hoy)
 function obtenerFechasDinamicas() {
     const fechas = [];
     const hoyLocal = new Date();
     hoyLocal.setHours(hoyLocal.getHours() - 4); 
-    const antier = new Date(hoyLocal);
-    antier.setDate(antier.getDate() - 2);
-    const ayer = new Date(hoyLocal);
-    ayer.setDate(ayer.getDate() - 1);
-    fechas.push(antier);
-    fechas.push(ayer);
+    const antier = new Date(hoyLocal); antier.setDate(antier.getDate() - 2);
+    const ayer = new Date(hoyLocal); ayer.setDate(ayer.getDate() - 1);
+    const hoy = new Date(hoyLocal);
+    
+    fechas.push(new Date(Date.UTC(antier.getFullYear(), antier.getMonth(), antier.getDate(), 12, 0, 0)));
+    fechas.push(new Date(Date.UTC(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 12, 0, 0)));
+    fechas.push(new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 12, 0, 0)));
     return fechas;
 }
 
@@ -147,27 +147,32 @@ function obtenerFechasDinamicas() {
     } catch (e) { log.warn(`Advertencia al limpiar directorios: ${e.message}`); }
 
     const fechasABuscar = obtenerFechasDinamicas();
-    log.success(`\n[INIT] BARRIDO DEFINITIVO INICIADO.`);
-    log.info(`Días a procesar: Antier (${fechasABuscar[0].toISOString().split('T')[0]}) y Ayer (${fechasABuscar[1].toISOString().split('T')[0]})\n`);
+    log.success(`\n[INIT] 🚀 ROBOT ELEADER (EXTRACCIÓN DIARIA) ACTIVADO.`);
+    log.info(`Procesando bloque de ${fechasABuscar.length} días...\n`);
 
     for (const fechaActual of fechasABuscar) {
-        const y = fechaActual.getFullYear().toString();
-        const m = (fechaActual.getMonth() + 1).toString().padStart(2, '0');
-        const d = fechaActual.getDate().toString().padStart(2, '0');
+        const y = fechaActual.getUTCFullYear().toString();
+        const m = (fechaActual.getUTCMonth() + 1).toString().padStart(2, '0');
+        const d = fechaActual.getUTCDate().toString().padStart(2, '0');
         const fechaReporteFinal = `${y}-${m}-${d}`;
         const rutaCarpetaVirtual = `FOTOS/${y}/${m}`; 
         
         log.info(`=========================================================`);
-        log.info(`🚀 INICIANDO EXTRACCIÓN PARA LA FECHA: ${fechaReporteFinal}`);
+        log.info(`📅 FECHA EN PROCESO: ${fechaReporteFinal}`);
         log.info(`=========================================================`);
 
         let masterExcelData = [];
-        
-        // <-- AQUI ESTA LA CONFIGURACIÓN CORRECTA PARA ACI LINUX
         const browser = await puppeteer.launch({
-            executablePath: '/usr/bin/google-chrome', 
-            headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process', '--window-size=1920,1080']
+            executablePath: '/usr/bin/chromium', 
+            headless: "new",
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-web-security', 
+                '--disable-features=IsolateOrigins,site-per-process', 
+                '--window-size=1920,1080',
+                '--lang=es-ES,es' // 🔥 OBLIGAMOS A AZURE A HABLAR EN ESPAÑOL
+            ]
         });
 
         browser.on('targetcreated', async (target) => {
@@ -182,25 +187,20 @@ function obtenerFechasDinamicas() {
         });
 
         try {
-            // ==============================================================================
-            // FASE 1: FOTOS OSA ORIGINAL 
-            // ==============================================================================
-            log.info(`--- COMENZANDO FASE 1: REPORTES OSA ---`);
             for (const nombreReporte of REPORTES_A_DESCARGAR) {
                 const unidadNegocioActual = UNIDADES_DE_NEGOCIO[nombreReporte] || "General";
-                log.info(`>>> PROCESANDO REPORTE FASE 1: ${nombreReporte} (${unidadNegocioActual})`);
+                log.info(`>>> Extrayendo: ${nombreReporte}`);
 
                 const page = await browser.newPage();
                 await page.setViewport({ width: 1920, height: 1080 });
+                await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9' }); 
                 await page.evaluateOnNewDocument(() => { window.name = '_eld_'; });
                 page.setDefaultNavigationTimeout(240000); 
-                page.setDefaultTimeout(240000);
 
                 const browserSession = await page.target().createCDPSession();
                 await browserSession.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadPath, eventsEnabled: true });
 
                 try {
-                    log.info('Paso 1: Login...');
                     await page.goto('https://mob.eleader.biz/mob2301/SysLoginAjax.aspx', { waitUntil: 'networkidle2' });
                     await delay(3000);
                     
@@ -209,13 +209,13 @@ function obtenerFechasDinamicas() {
                         await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
                         await page.type('#txtFirm', process.env.ELEADER_COMPANY || '', { delay: 50 });
                         await page.type('#txtPassword', process.env.ELEADER_PASS || '', { delay: 50 });
+                        // 🔥 Promise.all Original de tu Turbo Pro
                         await Promise.all([
                             page.keyboard.press('Enter'),
                             page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}) 
                         ]);
                     }
 
-                    log.info('Paso 2: Navegando al Dashboard...');
                     await delay(5000); 
                     await page.evaluate(() => {
                         const elements = Array.from(document.querySelectorAll('a, span, div'));
@@ -229,8 +229,9 @@ function obtenerFechasDinamicas() {
                         const panel = elements.find(el => el.textContent.trim() === 'Panel de informe');
                         if (panel) panel.click();
                     });
-                    await delay(10000); 
+                    await delay(8000); 
 
+                    // 🔥 EL PASO CLAVE REVELADO POR TU CÓDIGO
                     await page.evaluate(() => {
                         const elements = Array.from(document.querySelectorAll('a, span, div, li'));
                         const tareas = elements.find(el => el.textContent.trim() === 'Informes de tareas');
@@ -238,7 +239,6 @@ function obtenerFechasDinamicas() {
                     });
                     await delay(6000); 
 
-                    log.info(`Paso 3: Buscando el reporte: ${nombreReporte}...`);
                     const searchInputSelector = 'input[id*="srch"], input[placeholder*="ntroduce"]';
                     try {
                         await page.waitForSelector(searchInputSelector, { timeout: 10000 });
@@ -248,7 +248,7 @@ function obtenerFechasDinamicas() {
                         await page.type(searchInputSelector, nombreReporte, { delay: 100 });
                         await delay(1000);
                         await page.keyboard.press('Enter');
-                        await delay(8000); 
+                        await delay(6000); 
                     } catch (err) {}
 
                     const reportClicked = await page.evaluate((targetName) => {
@@ -258,11 +258,7 @@ function obtenerFechasDinamicas() {
                         return false;
                     }, nombreReporte);
 
-                    if (!reportClicked) {
-                        log.warn(`[OMITIDO] No se encontró en pantalla el reporte ${nombreReporte}.`);
-                        await page.close(); 
-                        continue;
-                    }
+                    if (!reportClicked) { continue; }
 
                     await delay(2000); 
                     await page.evaluate(() => {
@@ -271,10 +267,8 @@ function obtenerFechasDinamicas() {
                         if (btn) btn.click();
                     });
                     
-                    log.info('Paso 4: Entorno de filtros cargando...');
-                    await delay(15000); 
+                    await delay(12000); 
 
-                    log.info(`Paso 5: Forzando Fecha Estricta (${fechaReporteFinal})...`);
                     for (const frame of page.frames()) {
                         try {
                             await frame.evaluate((yVal, mVal, dVal) => {
@@ -331,7 +325,6 @@ function obtenerFechasDinamicas() {
                     }
                     await delay(3000);
 
-                    log.info('Paso 6: Mapeando Representantes...');
                     let activeFrame = null;
                     for (const frame of page.frames()) {
                         const clicked = await frame.evaluate(() => {
@@ -357,14 +350,15 @@ function obtenerFechasDinamicas() {
                     });
 
                     if(!mapData) {
-                        log.warn(`[VACÍO] No se encontraron representantes.`);
+                        log.warn(`[VACÍO] Reporte en blanco. Saltando...`);
                         await page.close();
                         continue;
                     }
 
                     let baseIdGlobal = mapData.baseId;
                     let chkIdsGlobal = mapData.ids;
-                    const numParts = 4;
+                    
+                    const numParts = chkIdsGlobal.length > 50 ? 4 : 2; 
                     const chunkSize = Math.ceil(chkIdsGlobal.length / numParts); 
                     const chunks = [];
                     for (let i = 0; i < chkIdsGlobal.length; i += chunkSize) {
@@ -372,8 +366,6 @@ function obtenerFechasDinamicas() {
                     }
 
                     for (let i = 0; i < chunks.length; i++) {
-                        const nombreParte = `${nombreReporte}_Parte${i + 1}`;
-                        
                         let currentFrame = null;
                         for (const frame of page.frames()) {
                             const isAlive = await frame.evaluate((bId) => !!document.getElementById(bId + '_btn'), baseIdGlobal).catch(()=>false);
@@ -386,23 +378,22 @@ function obtenerFechasDinamicas() {
                             const pause = (ms) => new Promise(res => setTimeout(res, ms));
                             const btnOpen = document.getElementById(bId + '_btn');
                             if (btnOpen) btnOpen.click();
-                            await pause(1500);
+                            await pause(1000);
                             const btnClear = document.getElementById('btnClearAll' + bId);
                             if (btnClear) btnClear.click();
                             else if (typeof DDChLSA === 'function') DDChLSA('divList' + bId, false, 0, 1);
-                            await pause(1500);
+                            await pause(1000);
                             
                             for (let id of chunkIds) {
                                 const chk = document.getElementById(id);
                                 if (chk && !chk.checked) {
                                     chk.click(); 
                                     chk.dispatchEvent(new Event('change', { bubbles: true }));
-                                    await pause(30);
                                 }
                             }
-                            await pause(1500);
+                            await pause(1000);
                             if (btnOpen) btnOpen.click();
-                            await pause(1500);
+                            await pause(1000);
                         }, baseIdGlobal, chunks[i]);
                         
                         await currentFrame.evaluate(() => {
@@ -412,7 +403,7 @@ function obtenerFechasDinamicas() {
 
                         let filePath;
                         const start = Date.now();
-                        while (Date.now() - start < 180000) {
+                        while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
                             const finalFile = files.find(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
                             if (finalFile) {
@@ -423,10 +414,13 @@ function obtenerFechasDinamicas() {
                                     break;
                                 }
                             }
-                            await delay(5000);
+                            await delay(4000);
                         }
 
-                        if (!filePath) continue;
+                        if (!filePath) {
+                            log.error(`Timeout en el Parte ${i+1}. Omitiendo...`);
+                            continue;
+                        }
 
                         try {
                             const zip = new AdmZip(filePath);
@@ -455,7 +449,6 @@ function obtenerFechasDinamicas() {
                                 }
 
                                 let headers = []; let photoHeaders = []; let normalHeaders = [];
-                                
                                 for(let C = range.s.c; C <= range.e.c; ++C) {
                                     let cell = sheet[xlsx.utils.encode_cell({c:C, r:headerRowIdx})];
                                     let headerName = cell ? String(cell.v).trim() : `Columna_${C}`;
@@ -473,32 +466,44 @@ function obtenerFechasDinamicas() {
                                     for(let C of normalHeaders) {
                                         let cell = sheet[xlsx.utils.encode_cell({c:C, r:R})];
                                         let val = cell ? (cell.w !== undefined ? cell.w : cell.v) : "";
-                                        if (cell && cell.v instanceof Date) val = cell.v.toISOString().split('T')[0];
+                                        if (cell && cell.v instanceof Date) {
+                                            val = cell.v.toISOString().replace('T', ' ').substring(0, 19); 
+                                        }
                                         if (val !== "") isEmptyRow = false;
                                         baseRow[headers[C]] = val;
                                     }
                                     if (isEmptyRow) continue; 
 
+                                    // PROTECCIÓN DE FECHAS ESTRICTA
                                     let fechaRaw = baseRow['fecha'] || baseRow['Fecha'] || baseRow['Fecha de realización'];
-                                    let dObj;
-                                    if (fechaRaw instanceof Date) { dObj = fechaRaw; } 
-                                    else if (typeof fechaRaw === 'number') { dObj = new Date(Math.round((fechaRaw - 25569) * 864e5)); } 
-                                    else if (typeof fechaRaw === 'string') {
-                                        if (fechaRaw.includes('/')) {
-                                            let partes = fechaRaw.split('/');
-                                            if (partes[2].length === 4) dObj = new Date(partes[2], partes[1] - 1, partes[0]);
-                                            else dObj = new Date(fechaRaw);
-                                        } else dObj = new Date(fechaRaw);
+                                    let fechaLimpiaStr = fechaReporteFinal; 
+                                    if (fechaRaw) {
+                                        if (typeof fechaRaw === 'string') {
+                                            let soloFecha = fechaRaw.split(' ')[0]; 
+                                            if (soloFecha.includes('/')) {
+                                                let partes = soloFecha.split('/');
+                                                if (partes[2] && partes[2].length === 4) { 
+                                                    fechaLimpiaStr = `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+                                                } else if (partes[0] && partes[0].length === 4) { 
+                                                    fechaLimpiaStr = `${partes[0]}-${partes[1].padStart(2, '0')}-${partes[2].padStart(2, '0')}`;
+                                                }
+                                            } else if (soloFecha.includes('-')) {
+                                                fechaLimpiaStr = soloFecha; 
+                                            }
+                                        } else if (fechaRaw instanceof Date) {
+                                            fechaLimpiaStr = fechaRaw.toISOString().split('T')[0];
+                                        } else if (typeof fechaRaw === 'number') {
+                                            let dObj = new Date(Math.round((fechaRaw - 25569) * 864e5));
+                                            fechaLimpiaStr = dObj.toISOString().split('T')[0];
+                                        }
                                     }
-                                    if (!dObj || isNaN(dObj.getTime())) dObj = new Date();
-                                    
-                                    let fechaLimpiaStr = `${dObj.getFullYear().toString()}-${(dObj.getMonth() + 1).toString().padStart(2, '0')}-${dObj.getDate().toString().padStart(2, '0')}`;
+                                    if (!fechaLimpiaStr || fechaLimpiaStr.length < 10) fechaLimpiaStr = fechaReporteFinal;
                                     baseRow['Fecha de realización'] = fechaLimpiaStr; 
 
                                     let pdvRaw = baseRow['ID Tienda'] || baseRow['Código de PDV'] || 'ND';
                                     let productoRaw = baseRow['Nombre del producto'] || baseRow['Nombre completo del producto'] || 'ND';
-                                    
                                     let representanteRaw = baseRow['Representante'];
+                                    
                                     if (!representanteRaw || String(representanteRaw).trim() === '') {
                                         if (photoHeaders.length > 0) {
                                             let cell = sheet[xlsx.utils.encode_cell({c:photoHeaders[0], r:R})];
@@ -516,7 +521,6 @@ function obtenerFechasDinamicas() {
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
-                                    
                                     let baseNameData = `${fechaLimpia}_${pdvLimpio}_${productoLimpio}_${representanteLimpio}`;
 
                                     let fotosEnFilaTemp = [];
@@ -538,8 +542,6 @@ function obtenerFechasDinamicas() {
                                             let tipoFotoLimpio = limpiarTextoParaArchivo(header, 30); 
                                             let ext = path.extname(originalBaseName) || '.jpg';
                                             if (!ext.includes('.')) ext = '.jpg';
-                                            
-                                            // NOMENCLATURA FASE 1 ORIGINAL
                                             let uniqueImageName = `${tipoFotoLimpio}_${baseNameData}${ext}`;
                                             fotosEnFilaTemp.push({ tipo: header, uniqueImageName: uniqueImageName, urlVieja: linkVal, originalBaseName: originalBaseName });
                                         }
@@ -551,8 +553,7 @@ function obtenerFechasDinamicas() {
                             const fotosAEnviarZip = zipEntries.filter(e => !e.isDirectory && (e.entryName.toLowerCase().endsWith('.jpg') || e.entryName.toLowerCase().endsWith('.png') || e.entryName.toLowerCase().endsWith('.jpeg')));
                             let zipPhotosMap = {};
                             fotosAEnviarZip.forEach(e => {
-                                let llavePerfecta = normalizarKey(path.basename(e.entryName));
-                                zipPhotosMap[llavePerfecta] = e.getData();
+                                zipPhotosMap[normalizarKey(path.basename(e.entryName))] = e.getData();
                             });
 
                             let dictAzureLinks = {}; 
@@ -562,25 +563,34 @@ function obtenerFechasDinamicas() {
                                 for (let fotoObj of temp.fotos) {
                                     promesasSubida.push(async () => {
                                         let finalImageName = fotoObj.uniqueImageName;
-                                        let bufferData = zipPhotosMap[normalizarKey(fotoObj.originalBaseName)];
-                                        let link = "";
+                                        const blobName = `${rutaCarpetaVirtual}/${finalImageName}`;
                                         
-                                        // AQUI SE USA EL CLIENTE OSA
-                                        const blockBlobClient = containerClientOsa.getBlockBlobClient(`${rutaCarpetaVirtual}/${finalImageName}`);
+                                        // 🚀 AQUÍ APLICAMOS EL CILIENTE OSA CORRECTO
+                                        const blockBlobClient = containerClientOsa.getBlockBlobClient(blobName);
+                                        
+                                        // 🚀 TURBINA 2: IDEMPOTENCIA CLOUD (Omite fotos ya rescatadas)
                                         const exists = await blockBlobClient.exists().catch(()=>false);
-                                        
                                         if (exists) {
-                                            link = blockBlobClient.url;
-                                        } else {
-                                            if (!bufferData) bufferData = await descargarFoto(fotoObj.urlVieja);
-                                            if (bufferData) link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientOsa);
+                                            dictAzureLinks[finalImageName] = blockBlobClient.url;
+                                            return; 
+                                        } 
+                                        
+                                        let bufferData = zipPhotosMap[normalizarKey(fotoObj.originalBaseName)];
+                                        if (!bufferData) {
+                                            bufferData = await descargarFoto(fotoObj.urlVieja); 
                                         }
-                                        if (link) dictAzureLinks[finalImageName] = link;
+
+                                        if (bufferData) {
+                                            // 🚀 AQUI APLICAMOS LA FUNCIÓN SUBIRAAZURE ACTUALIZADA AL CONTENEDOR OSA
+                                            let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientOsa);
+                                            if (link) dictAzureLinks[finalImageName] = link;
+                                        }
                                     });
                                 }
                             }
 
                             if (promesasSubida.length > 0) {
+                                log.info(`Subiendo lote de ${promesasSubida.length} fotos a Azure...`);
                                 let contadorSubidas = 0;
                                 const PARALLEL_LIMIT = 50; 
                                 for (let i = 0; i < promesasSubida.length; i += PARALLEL_LIMIT) {
@@ -590,6 +600,10 @@ function obtenerFechasDinamicas() {
                                 }
                             }
 
+                            // 🚀 TURBINA 4: LIBERACIÓN ACTIVA DE MEMORIA (Anticrash)
+                            zipPhotosMap = null; 
+                            
+                            // ENSAMBLE
                             for (let temp of tempRows) {
                                 if (temp.fotos.length > 0) {
                                     for (let fotoObj of temp.fotos) {
@@ -601,12 +615,17 @@ function obtenerFechasDinamicas() {
                                 }
                             }
 
-                        } catch (errorZip) {}
+                        } catch (errorZip) {
+                            log.error(`Error en Parseo Zip: ${errorZip.message}`);
+                        }
+                        
+                        // DESTRUCCIÓN INMEDIATA DEL ZIP FÍSICO
                         fs.unlinkSync(filePath); 
                     } 
                 } catch (errorNavegacion) {
-                    log.error('Fallo en navegacion F1');
+                    log.error(`Fallo general navegando en ${nombreReporte}: ${errorNavegacion.message}`);
                 }
+                
                 await page.close(); 
             } 
 
@@ -719,7 +738,7 @@ function obtenerFechasDinamicas() {
                     log.info('Paso 4: Entorno de filtros cargando (Fase 2)...');
                     await delay(15000); 
 
-                    log.info(`Paso 5: Forzando Fecha Estricta (${fechaReporteFinal})...`);
+                    log.info(`Paso 5: Forzando Fecha Estricta...`);
                     for (const frame of page.frames()) {
                         try {
                             await frame.evaluate((yVal, mVal, dVal) => {
@@ -983,6 +1002,7 @@ function obtenerFechasDinamicas() {
                                         
                                         if (linkVal && (linkVal.toLowerCase().includes('.jpg') || linkVal.toLowerCase().includes('.png') || linkVal.toLowerCase().includes('.jpeg'))) {
                                             let originalBaseName = linkVal.split('\\').pop().split('/').pop();
+                                            // La función de limpieza se encargará de remover el '/' de 'Foto / Photo' y convertirlo a 'Foto_Photo' 
                                             let tipoFotoLimpio = limpiarTextoParaArchivo(header, 30); 
                                             let ext = path.extname(originalBaseName) || '.jpg';
                                             if (!ext.includes('.')) ext = '.jpg';
@@ -1039,6 +1059,9 @@ function obtenerFechasDinamicas() {
                                 }
                                 log.success(`Proceso Fase 2 completado (${contadorSubidas} fotos subidas a fotos-ac).`);
                             }
+                            
+                            // 🚀 TURBINA 4: LIBERACIÓN ACTIVA DE MEMORIA (Anticrash)
+                            zipPhotosMap = null; 
 
                             for (let temp of tempRows) {
                                 if (temp.fotos.length > 0) {
@@ -1068,7 +1091,6 @@ function obtenerFechasDinamicas() {
         // REESCRITURA TOTAL DEL MASTER EXCEL EN AZURE POR DÍA
         // =========================================================
         if (masterExcelData.length > 0) {
-            log.info(`CONSOLIDANDO Y REESCRIBIENDO LA DATA DE LA FECHA ${fechaReporteFinal}...`);
             try {
                 let newWb = xlsx.utils.book_new();
                 let newWs = xlsx.utils.json_to_sheet(masterExcelData);
@@ -1077,8 +1099,8 @@ function obtenerFechasDinamicas() {
                 
                 const masterFileName = `Master_${fechaReporteFinal}.xlsx`;
                 
-                // Usando el mismo directorio que tenías en tu script
                 const blobName = `EXCEL_DIARIO/${masterFileName}`;
+                // EL EXCEL SE GUARDA EN containerClientOsa PARA NO ROMPER POWER BI
                 const blockBlobClient = containerClientOsa.getBlockBlobClient(blobName);
                 await blockBlobClient.uploadData(excelBuffer, { blobHTTPHeaders: { blobContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
                 
