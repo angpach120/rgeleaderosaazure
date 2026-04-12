@@ -567,8 +567,8 @@ function obtenerFechasDinamicas() {
                                         let finalImageName = fotoObj.uniqueImageName;
                                         const blobName = `${rutaCarpetaVirtual}/${finalImageName}`;
                                         
-                                        // 🚀 AQUÍ APLICAMOS EL CILIENTE OSA CORRECTO
-                                        const blockBlobClient = containerClientOsa.getBlockBlobClient(blobName);
+                                        // 🚀 AQUÍ APLICAMOS EL CLIENTE AC CORRECTO
+                                        const blockBlobClient = containerClientAc.getBlockBlobClient(blobName);
                                         
                                         // 🚀 TURBINA 2: IDEMPOTENCIA CLOUD (Omite fotos ya rescatadas)
                                         const exists = await blockBlobClient.exists().catch(()=>false);
@@ -583,8 +583,8 @@ function obtenerFechasDinamicas() {
                                         }
 
                                         if (bufferData) {
-                                            // 🚀 AQUI APLICAMOS LA FUNCIÓN SUBIRAAZURE ACTUALIZADA AL CONTENEDOR OSA
-                                            let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientOsa);
+                                            // 🚀 AQUI APLICAMOS LA FUNCIÓN SUBIRAAZURE ACTUALIZADA AL CONTENEDOR AC
+                                            let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientAc);
                                             if (link) dictAzureLinks[finalImageName] = link;
                                         }
                                     });
@@ -980,12 +980,13 @@ function obtenerFechasDinamicas() {
                                     }
                                     baseRow['Representante'] = representanteRaw;
 
+let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15); // <-- ESTA LÍNEA FALTABA
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
                                     
                                     // 🚀 NOMENCLATURA EXACTA FASE 2: Código de PDV_Nombre completo del producto_Representante_Fecha
-let baseNameDataF2 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
+                                    let baseNameDataF2 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
 
                                     let fotosEnFilaTemp = [];
                                     for(let C of photoHeaders) {
@@ -1091,9 +1092,6 @@ let baseNameDataF2 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fe
             log.info(`=========================================================`);
             log.success(`🚀 INICIANDO FASE 3: REPORTES PROMOCIONES ACUERDO COMERCIAL`);
             log.info(`=========================================================`);
-
-            // Instanciamos el nuevo contenedor localmente para no tocar el inicio del script
-            const containerClientPromo = blobServiceClient.getContainerClient('fotos-promo');
 
             const REPORTES_FASE_3 = [
                 "Promociones Acuerdo Comercial Alimentos",
@@ -1451,12 +1449,13 @@ let baseNameDataF2 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fe
                                     }
                                     baseRow['Representante'] = representanteRaw;
 
+let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15); // <-- ESTA LÍNEA FALTABA
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
                                     
-                                    // 🚀 NOMENCLATURA EXACTA FASE 3: Código de PDV_Nombre completo del producto_Representante
-let baseNameDataF3 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
+                                    // 🚀 NOMENCLATURA EXACTA FASE 3: Código de PDV_Nombre completo del producto_Representante_Fecha
+                                    let baseNameDataF3 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
 
                                     let fotosEnFilaTemp = [];
                                     for(let C of photoHeaders) {
