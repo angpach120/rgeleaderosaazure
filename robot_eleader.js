@@ -978,9 +978,9 @@ function obtenerFechasDinamicas() {
                                     } else {
                                         representanteRaw = String(representanteRaw).toUpperCase();
                                     }
-                                    baseRow['Representante'] = representanteRaw;
+baseRow['Representante'] = representanteRaw;
 
-let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15); // <-- ESTA LÍNEA FALTABA
+                                    let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15);
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
@@ -1447,9 +1447,9 @@ let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15); // <-- ESTA LÍNE
                                     } else {
                                         representanteRaw = String(representanteRaw).toUpperCase();
                                     }
-                                    baseRow['Representante'] = representanteRaw;
+baseRow['Representante'] = representanteRaw;
 
-let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15); // <-- ESTA LÍNEA FALTABA
+                                    let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15);
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
