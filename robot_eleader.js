@@ -397,6 +397,8 @@ function obtenerFechasDinamicas() {
                             if (btnOpen) btnOpen.click();
                             await pause(1000);
                         }, baseIdGlobal, chunks[i]);
+
+                        vaciarCarpetaDescargas(downloadPath); // <-- AQUI SE ENCIENDE EL INCINERADOR EN FASE 1
                         
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
@@ -622,7 +624,7 @@ function obtenerFechasDinamicas() {
                         }
                         
                         // DESTRUCCIÓN INMEDIATA DEL ZIP FÍSICO
-                        fs.unlinkSync(filePath); 
+try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                     } 
                 } catch (errorNavegacion) {
                     log.error(`Fallo general navegando en ${nombreReporte}: ${errorNavegacion.message}`);
@@ -872,6 +874,8 @@ function obtenerFechasDinamicas() {
                             await pause(1500);
                         }, baseIdGlobal, chunks[i]);
 
+                        vaciarCarpetaDescargas(downloadPath); // <-- AQUI SE ENCIENDE EL INCINERADOR EN FASE 2
+                        
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
                             if (btn) btn.click();
@@ -1078,7 +1082,7 @@ baseRow['Representante'] = representanteRaw;
                             }
 
                         } catch (errorZip) {}
-                        fs.unlinkSync(filePath); 
+try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                     } 
                 } catch (errorNavegacion) {
                     log.error('Fallo en navegacion F2');
@@ -1326,6 +1330,8 @@ baseRow['Representante'] = representanteRaw;
                             if (btnOpen) btnOpen.click();
                             await pause(1000);
                         }, baseIdGlobal, chunks[i]);
+
+                        vaciarCarpetaDescargas(downloadPath); // <-- AQUI SE ENCIENDE EL INCINERADOR EN FASE 3
                         
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
@@ -1555,7 +1561,7 @@ baseRow['Representante'] = representanteRaw;
                             log.error(`Error en Parseo Zip Fase 3: ${errorZip.message}`);
                         }
                         
-                        fs.unlinkSync(filePath); 
+try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                     } 
                 } catch (errorNavegacion) {
                     log.error(`Fallo general navegando en Promociones: ${errorNavegacion.message}`);
