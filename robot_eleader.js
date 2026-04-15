@@ -405,15 +405,17 @@ function obtenerFechasDinamicas() {
                             if (btn) btn.click();
                         });
 
-                        let filePath;
+let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            const finalFile = files.find(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
+                            // 🚀 MEJORA EXPERTA: Filtro POSITIVO. El bot es ahora ciego a basura de sistema.
+                            const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
-                                if (fs.statSync(fullPath).size > 100) {
-                                    await delay(4000); 
+                                // 🚀 MEJORA EXPERTA: Exigimos > 1000 bytes para asegurar que el ZIP ya tiene datos y no está corrupto
+                                if (fs.statSync(fullPath).size > 1000) {
+                                    await delay(5000); // Margen extra de seguridad para que el disco suelte el archivo
                                     filePath = fullPath;
                                     break;
                                 }
@@ -596,7 +598,7 @@ function obtenerFechasDinamicas() {
                             if (promesasSubida.length > 0) {
                                 log.info(`Subiendo lote de ${promesasSubida.length} fotos a Azure...`);
                                 let contadorSubidas = 0;
-                                const PARALLEL_LIMIT = 50; 
+                                const PARALLEL_LIMIT = 25; 
                                 for (let i = 0; i < promesasSubida.length; i += PARALLEL_LIMIT) {
                                     const lote = promesasSubida.slice(i, i + PARALLEL_LIMIT).map(fn => fn());
                                     await Promise.all(lote);
@@ -881,22 +883,23 @@ try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                             if (btn) btn.click();
                         });
 
-                        let filePath;
+let filePath;
                         const start = Date.now();
-                        while (Date.now() - start < 180000) {
+                        while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            const finalFile = files.find(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
+                            // 🚀 MEJORA EXPERTA: Filtro POSITIVO. El bot es ahora ciego a basura de sistema.
+                            const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
-                                if (fs.statSync(fullPath).size > 100) {
-                                    await delay(4000); 
+                                // 🚀 MEJORA EXPERTA: Exigimos > 1000 bytes para asegurar que el ZIP ya tiene datos y no está corrupto
+                                if (fs.statSync(fullPath).size > 1000) {
+                                    await delay(5000); // Margen extra de seguridad para que el disco suelte el archivo
                                     filePath = fullPath;
                                     break;
                                 }
                             }
-                            await delay(5000);
+                            await delay(4000);
                         }
-
                         if (!filePath) continue;
 
                         try {
@@ -1058,7 +1061,7 @@ baseRow['Representante'] = representanteRaw;
                             if (promesasSubida.length > 0) {
                                 log.info(`Inyectando ${promesasSubida.length} fotos al contenedor [fotos-ac] (Fase 2)...`);
                                 let contadorSubidas = 0;
-                                const PARALLEL_LIMIT = 50; 
+                                const PARALLEL_LIMIT = 25; 
                                 for (let i = 0; i < promesasSubida.length; i += PARALLEL_LIMIT) {
                                     const lote = promesasSubida.slice(i, i + PARALLEL_LIMIT).map(fn => fn());
                                     await Promise.all(lote);
@@ -1338,15 +1341,17 @@ try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                             if (btn) btn.click();
                         });
 
-                        let filePath;
+let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            const finalFile = files.find(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
+                            // 🚀 MEJORA EXPERTA: Filtro POSITIVO. El bot es ahora ciego a basura de sistema.
+                            const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
-                                if (fs.statSync(fullPath).size > 100) {
-                                    await delay(4000); 
+                                // 🚀 MEJORA EXPERTA: Exigimos > 1000 bytes para asegurar que el ZIP ya tiene datos y no está corrupto
+                                if (fs.statSync(fullPath).size > 1000) {
+                                    await delay(5000); // Margen extra de seguridad para que el disco suelte el archivo
                                     filePath = fullPath;
                                     break;
                                 }
@@ -1534,7 +1539,7 @@ baseRow['Representante'] = representanteRaw;
                             if (promesasSubida.length > 0) {
                                 log.info(`Subiendo lote de ${promesasSubida.length} fotos al contenedor [fotos-promo]...`);
                                 let contadorSubidas = 0;
-                                const PARALLEL_LIMIT = 50; 
+                                const PARALLEL_LIMIT = 25; 
                                 for (let i = 0; i < promesasSubida.length; i += PARALLEL_LIMIT) {
                                     const lote = promesasSubida.slice(i, i + PARALLEL_LIMIT).map(fn => fn());
                                     await Promise.all(lote);
