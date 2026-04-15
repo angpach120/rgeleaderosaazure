@@ -432,8 +432,8 @@ process.on('SIGTERM', () => { log.warn("Contenedor terminado por Azure. Saliendo
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            // 🚀 FILTRO POSITIVO. El bot es ciego a basura de sistema.
-                            const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
+// 🚀 FILTRO UNIVERSAL: Ignora archivos ocultos de Linux (empiezan con '.'), descargas incompletas y PNGs. Acepta ZIPs o archivos genéricos como "download"
+const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
                                 // 🚀 EXIGIMOS > 1000 bytes para asegurar que el ZIP ya tiene datos
@@ -897,7 +897,8 @@ process.on('SIGTERM', () => { log.warn("Contenedor terminado por Azure. Saliendo
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
+// 🚀 FILTRO UNIVERSAL: Ignora archivos ocultos de Linux (empiezan con '.'), descargas incompletas y PNGs. Acepta ZIPs o archivos genéricos como "download"
+const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
                                 if (fs.statSync(fullPath).size > 1000) {
@@ -1354,7 +1355,8 @@ process.on('SIGTERM', () => { log.warn("Contenedor terminado por Azure. Saliendo
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
+// 🚀 FILTRO UNIVERSAL: Ignora archivos ocultos de Linux (empiezan con '.'), descargas incompletas y PNGs. Acepta ZIPs o archivos genéricos como "download"
+const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
                                 if (fs.statSync(fullPath).size > 1000) {
