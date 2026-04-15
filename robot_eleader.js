@@ -39,6 +39,20 @@ const UNIDADES_DE_NEGOCIO = { "Fotos Osa_ALI": "Alimentos", "Fotos Osa_COA": "Co
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
 
+// 🛡️ INCINERADOR DE ARCHIVOS (Evita fotos cruzadas y duplicados entre fases)
+const vaciarCarpetaDescargas = (dirPath) => {
+    try {
+        if (fs.existsSync(dirPath)) {
+            const files = fs.readdirSync(dirPath);
+            for (const file of files) {
+                fs.unlinkSync(path.join(dirPath, file));
+            }
+        }
+    } catch(e) {
+        log.warn(`No se pudo vaciar la carpeta: ${e.message}`);
+    }
+};
+
 const limpiarTextoParaArchivo = (texto, maxLength = 100) => {
     if (!texto) return 'ND';
     let limpio = String(texto).replace(/[<>:"/\\|?*(),]/g, '').replace(/\s+/g, '_').trim();
@@ -66,7 +80,7 @@ function extraerRepresentante(url, fechaString) {
         let baseName = url.split('/').pop(); 
         if (baseName.includes(fechaString)) {
             let parteIzquierda = baseName.split(`_${fechaString}`)[0];
-const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa', 'promo', 'promociones'];
+            const palabrasIgnorar = ['foto', 'fotos', 'gondola', 'marcas', 'de', 'snacks', 'categoria', 'dinamica', 'comercial', 'opcional', 'osa', 'cph', 'ali', 'coa', 'promo', 'promociones'];
             let tokens = parteIzquierda.split('_');
             let nombreFinalTokens = [];
             for (let i = tokens.length - 1; i >= 0; i--) {
@@ -98,7 +112,7 @@ async function descargarFoto(url, maxRetries = 3) {
 const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_CONNECTION_STRING);
 const containerClientOsa = blobServiceClient.getContainerClient(AZURE_CONTAINER_OSA);
 const containerClientAc = blobServiceClient.getContainerClient(AZURE_CONTAINER_AC);
-const containerClientPromo = blobServiceClient.getContainerClient(AZURE_CONTAINER_PROMO); // <-- AGREGAR ESTA LÍNEA
+const containerClientPromo = blobServiceClient.getContainerClient(AZURE_CONTAINER_PROMO); 
 
 // 🛠️ CIMIENTOS CORREGIDOS: La función ahora acepta targetContainerClient
 async function subirAAzure(nombreArchivo, buffer, rutaCarpetaVirtual, targetContainerClient, maxRetries = 3) {
@@ -137,6 +151,10 @@ function obtenerFechasDinamicas() {
     return fechas;
 }
 
+// 🛡️ ESCUDO ANTI-ZOMBIS: Atrapa el apagado del contenedor y limpia Chrome
+process.on('SIGINT', () => { log.warn("Apagado forzado detectado. Saliendo..."); process.exit(0); });
+process.on('SIGTERM', () => { log.warn("Contenedor terminado por Azure. Saliendo..."); process.exit(0); });
+
 (async () => {
     const downloadPath = path.join(process.cwd(), 'downloads');
     const finalPath = path.join(process.cwd(), 'reportes_finales');
@@ -163,7 +181,11 @@ function obtenerFechasDinamicas() {
         log.info(`📅 FECHA EN PROCESO: ${fechaReporteFinal}`);
         log.info(`=========================================================`);
 
-        let masterExcelData = [];
+        // 🚀 SEPARACIÓN DE DATOS POR FASE (NUEVO)
+        let excelDataOsa = [];
+        let excelDataAc = [];
+        let excelDataPromo = [];
+        
         const browser = await puppeteer.launch({
             executablePath: '/usr/bin/chromium', 
             headless: "new",
@@ -189,9 +211,12 @@ function obtenerFechasDinamicas() {
         });
 
         try {
+            // ==============================================================================
+            // FASE 1: FOTOS OSA ORIGINAL
+            // ==============================================================================
             for (const nombreReporte of REPORTES_A_DESCARGAR) {
                 const unidadNegocioActual = UNIDADES_DE_NEGOCIO[nombreReporte] || "General";
-                log.info(`>>> Extrayendo: ${nombreReporte}`);
+                log.info(`>>> FASE 1: Extrayendo: ${nombreReporte}`);
 
                 const page = await browser.newPage();
                 await page.setViewport({ width: 1920, height: 1080 });
@@ -211,7 +236,6 @@ function obtenerFechasDinamicas() {
                         await page.type('#txtUser', process.env.ELEADER_USER || '', { delay: 50 });
                         await page.type('#txtFirm', process.env.ELEADER_COMPANY || '', { delay: 50 });
                         await page.type('#txtPassword', process.env.ELEADER_PASS || '', { delay: 50 });
-                        // 🔥 Promise.all Original de tu Turbo Pro
                         await Promise.all([
                             page.keyboard.press('Enter'),
                             page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}) 
@@ -233,7 +257,6 @@ function obtenerFechasDinamicas() {
                     });
                     await delay(8000); 
 
-                    // 🔥 EL PASO CLAVE REVELADO POR TU CÓDIGO
                     await page.evaluate(() => {
                         const elements = Array.from(document.querySelectorAll('a, span, div, li'));
                         const tareas = elements.find(el => el.textContent.trim() === 'Informes de tareas');
@@ -352,7 +375,6 @@ function obtenerFechasDinamicas() {
                     });
 
                     if(!mapData) {
-                        log.warn(`[VACÍO] Reporte en blanco. Saltando...`);
                         await page.close();
                         continue;
                     }
@@ -397,25 +419,26 @@ function obtenerFechasDinamicas() {
                             if (btnOpen) btnOpen.click();
                             await pause(1000);
                         }, baseIdGlobal, chunks[i]);
-
-                        vaciarCarpetaDescargas(downloadPath); // <-- AQUI SE ENCIENDE EL INCINERADOR EN FASE 1
                         
+                        // 🛡️ INCINERADOR DE BASURA FASE 1
+                        vaciarCarpetaDescargas(downloadPath);
+
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
                             if (btn) btn.click();
                         });
 
-let filePath;
+                        let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            // 🚀 MEJORA EXPERTA: Filtro POSITIVO. El bot es ahora ciego a basura de sistema.
+                            // 🚀 FILTRO POSITIVO. El bot es ciego a basura de sistema.
                             const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
-                                // 🚀 MEJORA EXPERTA: Exigimos > 1000 bytes para asegurar que el ZIP ya tiene datos y no está corrupto
+                                // 🚀 EXIGIMOS > 1000 bytes para asegurar que el ZIP ya tiene datos
                                 if (fs.statSync(fullPath).size > 1000) {
-                                    await delay(5000); // Margen extra de seguridad para que el disco suelte el archivo
+                                    await delay(5000); 
                                     filePath = fullPath;
                                     break;
                                 }
@@ -480,36 +503,26 @@ let filePath;
                                     }
                                     if (isEmptyRow) continue; 
 
-                                    // PROTECCIÓN DE FECHAS ESTRICTA
                                     let fechaRaw = baseRow['fecha'] || baseRow['Fecha'] || baseRow['Fecha de realización'];
-                                    let fechaLimpiaStr = fechaReporteFinal; 
-                                    if (fechaRaw) {
-                                        if (typeof fechaRaw === 'string') {
-                                            let soloFecha = fechaRaw.split(' ')[0]; 
-                                            if (soloFecha.includes('/')) {
-                                                let partes = soloFecha.split('/');
-                                                if (partes[2] && partes[2].length === 4) { 
-                                                    fechaLimpiaStr = `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
-                                                } else if (partes[0] && partes[0].length === 4) { 
-                                                    fechaLimpiaStr = `${partes[0]}-${partes[1].padStart(2, '0')}-${partes[2].padStart(2, '0')}`;
-                                                }
-                                            } else if (soloFecha.includes('-')) {
-                                                fechaLimpiaStr = soloFecha; 
-                                            }
-                                        } else if (fechaRaw instanceof Date) {
-                                            fechaLimpiaStr = fechaRaw.toISOString().split('T')[0];
-                                        } else if (typeof fechaRaw === 'number') {
-                                            let dObj = new Date(Math.round((fechaRaw - 25569) * 864e5));
-                                            fechaLimpiaStr = dObj.toISOString().split('T')[0];
-                                        }
+                                    let dObj;
+                                    if (fechaRaw instanceof Date) { dObj = fechaRaw; } 
+                                    else if (typeof fechaRaw === 'number') { dObj = new Date(Math.round((fechaRaw - 25569) * 864e5)); } 
+                                    else if (typeof fechaRaw === 'string') {
+                                        if (fechaRaw.includes('/')) {
+                                            let partes = fechaRaw.split('/');
+                                            if (partes[2].length === 4) dObj = new Date(partes[2], partes[1] - 1, partes[0]);
+                                            else dObj = new Date(fechaRaw);
+                                        } else dObj = new Date(fechaRaw);
                                     }
-                                    if (!fechaLimpiaStr || fechaLimpiaStr.length < 10) fechaLimpiaStr = fechaReporteFinal;
+                                    if (!dObj || isNaN(dObj.getTime())) dObj = new Date();
+                                    
+                                    let fechaLimpiaStr = `${dObj.getFullYear().toString()}-${(dObj.getMonth() + 1).toString().padStart(2, '0')}-${dObj.getDate().toString().padStart(2, '0')}`;
                                     baseRow['Fecha de realización'] = fechaLimpiaStr; 
 
                                     let pdvRaw = baseRow['ID Tienda'] || baseRow['Código de PDV'] || 'ND';
                                     let productoRaw = baseRow['Nombre del producto'] || baseRow['Nombre completo del producto'] || 'ND';
-                                    let representanteRaw = baseRow['Representante'];
                                     
+                                    let representanteRaw = baseRow['Representante'];
                                     if (!representanteRaw || String(representanteRaw).trim() === '') {
                                         if (photoHeaders.length > 0) {
                                             let cell = sheet[xlsx.utils.encode_cell({c:photoHeaders[0], r:R})];
@@ -527,6 +540,8 @@ let filePath;
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
+                                    
+                                    // NOMENCLATURA OSA
                                     let baseNameData = `${fechaLimpia}_${pdvLimpio}_${productoLimpio}_${representanteLimpio}`;
 
                                     let fotosEnFilaTemp = [];
@@ -571,10 +586,8 @@ let filePath;
                                         let finalImageName = fotoObj.uniqueImageName;
                                         const blobName = `${rutaCarpetaVirtual}/${finalImageName}`;
                                         
-                                        // 🚀 AQUÍ APLICAMOS EL CLIENTE AC CORRECTO
-                                        const blockBlobClient = containerClientAc.getBlockBlobClient(blobName);
+                                        const blockBlobClient = containerClientOsa.getBlockBlobClient(blobName);
                                         
-                                        // 🚀 TURBINA 2: IDEMPOTENCIA CLOUD (Omite fotos ya rescatadas)
                                         const exists = await blockBlobClient.exists().catch(()=>false);
                                         if (exists) {
                                             dictAzureLinks[finalImageName] = blockBlobClient.url;
@@ -587,8 +600,7 @@ let filePath;
                                         }
 
                                         if (bufferData) {
-                                            // 🚀 AQUI APLICAMOS LA FUNCIÓN SUBIRAAZURE ACTUALIZADA AL CONTENEDOR AC
-                                            let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientAc);
+                                            let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientOsa);
                                             if (link) dictAzureLinks[finalImageName] = link;
                                         }
                                     });
@@ -596,7 +608,6 @@ let filePath;
                             }
 
                             if (promesasSubida.length > 0) {
-                                log.info(`Subiendo lote de ${promesasSubida.length} fotos a Azure...`);
                                 let contadorSubidas = 0;
                                 const PARALLEL_LIMIT = 25; 
                                 for (let i = 0; i < promesasSubida.length; i += PARALLEL_LIMIT) {
@@ -606,27 +617,25 @@ let filePath;
                                 }
                             }
 
-                            // 🚀 TURBINA 4: LIBERACIÓN ACTIVA DE MEMORIA (Anticrash)
                             zipPhotosMap = null; 
                             
-                            // ENSAMBLE
+                            // 🚀 ENSAMBLE A MEMORIA OSA
                             for (let temp of tempRows) {
                                 if (temp.fotos.length > 0) {
                                     for (let fotoObj of temp.fotos) {
                                         let linkDirecto = dictAzureLinks[fotoObj.uniqueImageName] || "Error/Sin subir";
-                                        masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
+                                        excelDataOsa.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
                                     }
                                 } else {
-                                    masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
+                                    excelDataOsa.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
                                 }
                             }
 
                         } catch (errorZip) {
-                            log.error(`Error en Parseo Zip: ${errorZip.message}`);
+                            log.error(`Error en Parseo Zip Fase 1: ${errorZip.message}`);
                         }
                         
-                        // DESTRUCCIÓN INMEDIATA DEL ZIP FÍSICO
-try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
+                        try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                     } 
                 } catch (errorNavegacion) {
                     log.error(`Fallo general navegando en ${nombreReporte}: ${errorNavegacion.message}`);
@@ -876,24 +885,23 @@ try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                             await pause(1500);
                         }, baseIdGlobal, chunks[i]);
 
-                        vaciarCarpetaDescargas(downloadPath); // <-- AQUI SE ENCIENDE EL INCINERADOR EN FASE 2
+                        // 🛡️ INCINERADOR DE BASURA FASE 2
+                        vaciarCarpetaDescargas(downloadPath); 
                         
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
                             if (btn) btn.click();
                         });
 
-let filePath;
+                        let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            // 🚀 MEJORA EXPERTA: Filtro POSITIVO. El bot es ahora ciego a basura de sistema.
                             const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
-                                // 🚀 MEJORA EXPERTA: Exigimos > 1000 bytes para asegurar que el ZIP ya tiene datos y no está corrupto
                                 if (fs.statSync(fullPath).size > 1000) {
-                                    await delay(5000); // Margen extra de seguridad para que el disco suelte el archivo
+                                    await delay(5000); 
                                     filePath = fullPath;
                                     break;
                                 }
@@ -985,7 +993,7 @@ let filePath;
                                     } else {
                                         representanteRaw = String(representanteRaw).toUpperCase();
                                     }
-baseRow['Representante'] = representanteRaw;
+                                    baseRow['Representante'] = representanteRaw;
 
                                     let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15);
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
@@ -1012,12 +1020,10 @@ baseRow['Representante'] = representanteRaw;
                                         
                                         if (linkVal && (linkVal.toLowerCase().includes('.jpg') || linkVal.toLowerCase().includes('.png') || linkVal.toLowerCase().includes('.jpeg'))) {
                                             let originalBaseName = linkVal.split('\\').pop().split('/').pop();
-                                            // La función de limpieza se encargará de remover el '/' de 'Foto / Photo' y convertirlo a 'Foto_Photo' 
                                             let tipoFotoLimpio = limpiarTextoParaArchivo(header, 30); 
                                             let ext = path.extname(originalBaseName) || '.jpg';
                                             if (!ext.includes('.')) ext = '.jpg';
                                             
-                                            // 🚀 ARMADO FINAL FASE 2: PDV_Producto_Representante_TipoDeFoto.jpg
                                             let uniqueImageName = `${baseNameDataF2}_${tipoFotoLimpio}${ext}`;
                                             fotosEnFilaTemp.push({ tipo: header, uniqueImageName: uniqueImageName, urlVieja: linkVal, originalBaseName: originalBaseName });
                                         }
@@ -1070,22 +1076,24 @@ baseRow['Representante'] = representanteRaw;
                                 log.success(`Proceso Fase 2 completado (${contadorSubidas} fotos subidas a fotos-ac).`);
                             }
                             
-                            // 🚀 TURBINA 4: LIBERACIÓN ACTIVA DE MEMORIA (Anticrash)
                             zipPhotosMap = null; 
 
+                            // 🚀 ENSAMBLE A MEMORIA AC
                             for (let temp of tempRows) {
                                 if (temp.fotos.length > 0) {
                                     for (let fotoObj of temp.fotos) {
                                         let linkDirecto = dictAzureLinks[fotoObj.uniqueImageName] || "Error/Sin subir";
-                                        masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
+                                        excelDataAc.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
                                     }
                                 } else {
-                                    masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
+                                    excelDataAc.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
                                 }
                             }
 
-                        } catch (errorZip) {}
-try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
+                        } catch (errorZip) {
+                            log.error(`Error en Parseo Zip Fase 2: ${errorZip.message}`);
+                        }
+                        try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                     } 
                 } catch (errorNavegacion) {
                     log.error('Fallo en navegacion F2');
@@ -1334,24 +1342,23 @@ try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                             await pause(1000);
                         }, baseIdGlobal, chunks[i]);
 
-                        vaciarCarpetaDescargas(downloadPath); // <-- AQUI SE ENCIENDE EL INCINERADOR EN FASE 3
+                        // 🛡️ INCINERADOR DE BASURA FASE 3
+                        vaciarCarpetaDescargas(downloadPath); 
                         
                         await currentFrame.evaluate(() => {
                             const btn = document.querySelector('.ExpBtn') || document.querySelector('a[id*="btnExpR"]');
                             if (btn) btn.click();
                         });
 
-let filePath;
+                        let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-                            // 🚀 MEJORA EXPERTA: Filtro POSITIVO. El bot es ahora ciego a basura de sistema.
                             const finalFile = files.find(f => f.toLowerCase().endsWith('.zip'));
                             if (finalFile) {
                                 const fullPath = path.join(downloadPath, finalFile);
-                                // 🚀 MEJORA EXPERTA: Exigimos > 1000 bytes para asegurar que el ZIP ya tiene datos y no está corrupto
                                 if (fs.statSync(fullPath).size > 1000) {
-                                    await delay(5000); // Margen extra de seguridad para que el disco suelte el archivo
+                                    await delay(5000); 
                                     filePath = fullPath;
                                     break;
                                 }
@@ -1395,7 +1402,6 @@ let filePath;
                                     let cell = sheet[xlsx.utils.encode_cell({c:C, r:headerRowIdx})];
                                     let headerName = cell ? String(cell.v).trim() : `Columna_${C}`;
                                     headers[C] = headerName;
-                                    // 🚀 EL DETECTOR ATRAPA: Foto / Photo, Foto impresora, Foto fleje, y columnas llamadas simplemente "Foto" o " Foto "
                                     if (headerName.toLowerCase().includes('foto') && headerName.toLowerCase() !== 'fotos') {
                                         photoHeaders.push(C);
                                     } else {
@@ -1417,7 +1423,6 @@ let filePath;
                                     }
                                     if (isEmptyRow) continue; 
 
-                                    // PROTECCIÓN DE FECHAS ESTRICTA
                                     let fechaRaw = baseRow['fecha'] || baseRow['Fecha'] || baseRow['Fecha de realización'];
                                     let fechaLimpiaStr = fechaReporteFinal; 
                                     if (fechaRaw) {
@@ -1458,14 +1463,13 @@ let filePath;
                                     } else {
                                         representanteRaw = String(representanteRaw).toUpperCase();
                                     }
-baseRow['Representante'] = representanteRaw;
+                                    baseRow['Representante'] = representanteRaw;
 
-                                    let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15);
+                                    let fechaLimpia = limpiarTextoParaArchivo(fechaLimpiaStr, 15); 
                                     let pdvLimpio = limpiarTextoParaArchivo(pdvRaw, 30);
                                     let productoLimpio = limpiarTextoParaArchivo(productoRaw, 100); 
                                     let representanteLimpio = limpiarTextoParaArchivo(representanteRaw, 50);
                                     
-                                    // 🚀 NOMENCLATURA EXACTA FASE 3: Código de PDV_Nombre completo del producto_Representante_Fecha
                                     let baseNameDataF3 = `${pdvLimpio}_${productoLimpio}_${representanteLimpio}_${fechaLimpia}`;
 
                                     let fotosEnFilaTemp = [];
@@ -1484,12 +1488,10 @@ baseRow['Representante'] = representanteRaw;
                                         
                                         if (linkVal && (linkVal.toLowerCase().includes('.jpg') || linkVal.toLowerCase().includes('.png') || linkVal.toLowerCase().includes('.jpeg'))) {
                                             let originalBaseName = linkVal.split('\\').pop().split('/').pop();
-                                            // Limpieza convierte mágicamente "Foto fleje" en "Foto_fleje"
                                             let tipoFotoLimpio = limpiarTextoParaArchivo(header, 30); 
                                             let ext = path.extname(originalBaseName) || '.jpg';
                                             if (!ext.includes('.')) ext = '.jpg';
                                             
-                                            // 🚀 ARMADO FINAL FASE 3: PDV_Producto_Representante_TipoDeFoto.jpg
                                             let uniqueImageName = `${baseNameDataF3}_${tipoFotoLimpio}${ext}`;
                                             fotosEnFilaTemp.push({ tipo: header, uniqueImageName: uniqueImageName, urlVieja: linkVal, originalBaseName: originalBaseName });
                                         }
@@ -1513,7 +1515,6 @@ baseRow['Representante'] = representanteRaw;
                                         let finalImageName = fotoObj.uniqueImageName;
                                         const blobName = `${rutaCarpetaVirtual}/${finalImageName}`;
                                         
-                                        // 🚀 AQUÍ APLICAMOS EL CILIENTE PROMO
                                         const blockBlobClient = containerClientPromo.getBlockBlobClient(blobName);
                                         
                                         const exists = await blockBlobClient.exists().catch(()=>false);
@@ -1528,7 +1529,6 @@ baseRow['Representante'] = representanteRaw;
                                         }
 
                                         if (bufferData) {
-                                            // 🚀 SE ENVÍA AL CONTENEDOR FOTOS-PROMO
                                             let link = await subirAAzure(finalImageName, bufferData, rutaCarpetaVirtual, containerClientPromo);
                                             if (link) dictAzureLinks[finalImageName] = link;
                                         }
@@ -1550,15 +1550,15 @@ baseRow['Representante'] = representanteRaw;
 
                             zipPhotosMap = null; 
                             
-                            // ENSAMBLE AL MASTER
+                            // 🚀 ENSAMBLE A MEMORIA PROMO
                             for (let temp of tempRows) {
                                 if (temp.fotos.length > 0) {
                                     for (let fotoObj of temp.fotos) {
                                         let linkDirecto = dictAzureLinks[fotoObj.uniqueImageName] || "Error/Sin subir";
-                                        masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
+                                        excelDataPromo.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': fotoObj.tipo, 'Fotos': linkDirecto });
                                     }
                                 } else {
-                                    masterExcelData.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
+                                    excelDataPromo.push({ 'UnidadNegocios': temp.unidad, ...temp.baseRow, 'Tipo de Foto': "Sin Foto", 'Fotos': "" });
                                 }
                             }
 
@@ -1566,7 +1566,7 @@ baseRow['Representante'] = representanteRaw;
                             log.error(`Error en Parseo Zip Fase 3: ${errorZip.message}`);
                         }
                         
-try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
+                        try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
                     } 
                 } catch (errorNavegacion) {
                     log.error(`Fallo general navegando en Promociones: ${errorNavegacion.message}`);
@@ -1580,29 +1580,35 @@ try { fs.unlinkSync(filePath); } catch(e) {} // <-- BLINDAJE ANTICRASH
         }
 
         // =========================================================
-        // REESCRITURA TOTAL DEL MASTER EXCEL EN AZURE POR DÍA
+        // MOTOR DE CREACIÓN DE EXCELS SEPARADOS POR CONTENEDOR
         // =========================================================
-        if (masterExcelData.length > 0) {
-            try {
-                let newWb = xlsx.utils.book_new();
-                let newWs = xlsx.utils.json_to_sheet(masterExcelData);
-                xlsx.utils.book_append_sheet(newWb, newWs, "Reporte Consolidado");
-                let excelBuffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
-                
-                const masterFileName = `Master_${fechaReporteFinal}.xlsx`;
-                
-                const blobName = `EXCEL_DIARIO/${masterFileName}`;
-                // EL EXCEL SE GUARDA EN containerClientOsa PARA NO ROMPER POWER BI
-                const blockBlobClient = containerClientOsa.getBlockBlobClient(blobName);
-                await blockBlobClient.uploadData(excelBuffer, { blobHTTPHeaders: { blobContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
-                
-                log.success(`¡Consolidado de ${fechaReporteFinal} cerrado y guardado!`);
-            } catch (errMaster) {
-                log.error(`Error subiendo el Master Excel: ${errMaster.message}`);
+        async function crearYSubirExcel(datos, prefijo, containerClient) {
+            if (datos.length > 0) {
+                try {
+                    let newWb = xlsx.utils.book_new();
+                    let newWs = xlsx.utils.json_to_sheet(datos);
+                    xlsx.utils.book_append_sheet(newWb, newWs, `Data_${prefijo}`);
+                    let excelBuffer = xlsx.write(newWb, { type: 'buffer', bookType: 'xlsx' });
+                    
+                    const masterFileName = `Master_${prefijo}_${fechaReporteFinal}.xlsx`;
+                    const blobName = `EXCEL_DIARIO/${masterFileName}`;
+                    
+                    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+                    await blockBlobClient.uploadData(excelBuffer, { blobHTTPHeaders: { blobContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
+                    
+                    log.success(`¡Excel [${masterFileName}] guardado en [${containerClient.containerName}]!`);
+                } catch (errMaster) {
+                    log.error(`Error subiendo Excel de ${prefijo}: ${errMaster.message}`);
+                }
+            } else {
+                log.warn(`Sin datos de ${prefijo} para la fecha ${fechaReporteFinal}.`);
             }
-        } else {
-            log.warn(`Sin datos para la fecha ${fechaReporteFinal}.`);
         }
+
+        // Ejecutamos la creación de los 3 Excels en sus carpetas correspondientes
+        await crearYSubirExcel(excelDataOsa, "OSA", containerClientOsa);
+        await crearYSubirExcel(excelDataAc, "AC", containerClientAc);
+        await crearYSubirExcel(excelDataPromo, "PROMO", containerClientPromo);
     }
 
     log.success(`===================================================`);
