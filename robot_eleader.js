@@ -428,15 +428,17 @@ process.on('SIGTERM', () => { log.warn("Contenedor terminado por Azure. Saliendo
                             if (btn) btn.click();
                         });
 
+                        // 🚀 CORRECCIÓN FASE 1: FILTRO ZIP EN BLANCO
                         let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-// 🚀 FILTRO UNIVERSAL: Ignora archivos ocultos de Linux (empiezan con '.'), descargas incompletas y PNGs. Acepta ZIPs o archivos genéricos como "download"
-const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
-                            if (finalFile) {
-                                const fullPath = path.join(downloadPath, finalFile);
-                                // 🚀 EXIGIMOS > 1000 bytes para asegurar que el ZIP ya tiene datos
+                            
+                            const isDownloading = files.some(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
+                            const zipFile = files.find(f => f.toLowerCase().endsWith('.zip'));
+
+                            if (zipFile && !isDownloading) {
+                                const fullPath = path.join(downloadPath, zipFile);
                                 if (fs.statSync(fullPath).size > 1000) {
                                     await delay(5000); 
                                     filePath = fullPath;
@@ -893,14 +895,17 @@ const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload
                             if (btn) btn.click();
                         });
 
+                        // 🚀 CORRECCIÓN FASE 2: FILTRO ZIP EN BLANCO
                         let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-// 🚀 FILTRO UNIVERSAL: Ignora archivos ocultos de Linux (empiezan con '.'), descargas incompletas y PNGs. Acepta ZIPs o archivos genéricos como "download"
-const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
-                            if (finalFile) {
-                                const fullPath = path.join(downloadPath, finalFile);
+                            
+                            const isDownloading = files.some(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
+                            const zipFile = files.find(f => f.toLowerCase().endsWith('.zip'));
+
+                            if (zipFile && !isDownloading) {
+                                const fullPath = path.join(downloadPath, zipFile);
                                 if (fs.statSync(fullPath).size > 1000) {
                                     await delay(5000); 
                                     filePath = fullPath;
@@ -1351,14 +1356,17 @@ const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload
                             if (btn) btn.click();
                         });
 
+                        // 🚀 CORRECCIÓN FASE 3: FILTRO ZIP EN BLANCO
                         let filePath;
                         const start = Date.now();
                         while (Date.now() - start < 180000) { 
                             const files = fs.readdirSync(downloadPath);
-// 🚀 FILTRO UNIVERSAL: Ignora archivos ocultos de Linux (empiezan con '.'), descargas incompletas y PNGs. Acepta ZIPs o archivos genéricos como "download"
-const finalFile = files.find(f => !f.startsWith('.') && !f.endsWith('.crdownload') && !f.endsWith('.tmp') && !f.endsWith('.png'));
-                            if (finalFile) {
-                                const fullPath = path.join(downloadPath, finalFile);
+                            
+                            const isDownloading = files.some(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
+                            const zipFile = files.find(f => f.toLowerCase().endsWith('.zip'));
+
+                            if (zipFile && !isDownloading) {
+                                const fullPath = path.join(downloadPath, zipFile);
                                 if (fs.statSync(fullPath).size > 1000) {
                                     await delay(5000); 
                                     filePath = fullPath;
