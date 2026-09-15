@@ -189,14 +189,15 @@ process.on('SIGTERM', () => { log.warn("Contenedor terminado por Azure. Saliendo
         const browser = await puppeteer.launch({
             executablePath: '/usr/bin/chromium', 
             headless: "new",
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
-                '--disable-web-security', 
-                '--disable-features=IsolateOrigins,site-per-process', 
-                '--window-size=1920,1080',
-                '--lang=es-ES,es' // 🔥 OBLIGAMOS A AZURE A HABLAR EN ESPAÑOL
-            ]
+args: [
+    '--no-sandbox', 
+    '--disable-setuid-sandbox', 
+    '--disable-web-security', 
+    '--disable-features=IsolateOrigins,site-per-process', 
+    '--window-size=1920,1080',
+    '--lang=es-ES,es',
+    '--disable-dev-shm-usage' // 🔥 ESTO EVITA EL CONGELAMIENTO
+]
         });
 
         browser.on('targetcreated', async (target) => {
