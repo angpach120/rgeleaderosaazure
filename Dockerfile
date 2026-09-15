@@ -1,4 +1,4 @@
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
 # 1. Instalamos el navegador Chromium oficial de Linux
 RUN apt-get update && apt-get install -y \
